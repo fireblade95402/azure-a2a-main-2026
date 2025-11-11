@@ -561,46 +561,78 @@ export function useVoiceLive(config: VoiceLiveConfig): VoiceLiveHook {
     }
 
     console.log('[VoiceLive] ════════════════════════════════════════════════')
-    console.log('[VOICE-A2A] ✅ STEP 10: Sending function_call_output to WebSocket')
+    console.log('[VOICE-A2A] ✅ STEP 10: Determining injection strategy')
     console.log('[VOICE-A2A] call_id:', response.call_id)
+    console.log('[VOICE-A2A] status:', response.status || 'completed')
+    console.log('[VOICE-A2A] message:', response.message)
     console.log('[VOICE-A2A] previous_item_id:', callInfo.previous_item_id)
 
-    // Python SDK pattern: Send the A2A response as function_call_output
-    const functionOutput = {
-      type: 'conversation.item.create',
-      previous_item_id: callInfo.previous_item_id, // Insert after the function call
-      item: {
-        type: 'function_call_output',
-        call_id: response.call_id,
-        output: JSON.stringify({
-          status: 'completed',
-          message: response.message || response.response,
-          claim_id: response.claim_id,
-          timestamp: Date.now()
-        })
+    const isInProgress = response.status === 'in_progress'
+    
+    if (isInProgress) {
+      // For in-progress messages (workflow steps), inject as USER message
+      console.log('[VOICE-A2A] 📝 Strategy: Injecting as USER message (workflow step)')
+      
+      const userMessage = {
+        type: 'conversation.item.create',
+        item: {
+          type: 'message',
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: response.message
+            }
+          ]
+        }
       }
+      
+      console.log('[VOICE-A2A] 📤 SENDING user message')
+      console.log('[VoiceLive] Full payload:', JSON.stringify(userMessage, null, 2))
+      
+      wsRef.current.send(JSON.stringify(userMessage))
+      console.log('[VOICE-A2A] ✅ User message SENT')
+      
+      // Trigger Voice Live to respond to this user message
+      wsRef.current.send(JSON.stringify({ type: 'response.create' }))
+      console.log('[VOICE-A2A] ✅ response.create SENT - Voice Live should speak the message')
+      
+      // Keep call_id in map for the final response
+      console.log('[VOICE-A2A] 🔄 Keeping call_id in map for final response')
+      
+    } else {
+      // For completed status, inject as function_call_output (final result)
+      console.log('[VOICE-A2A] 🎯 Strategy: Injecting as FUNCTION_CALL_OUTPUT (final result)')
+      
+      const functionOutput = {
+        type: 'conversation.item.create',
+        previous_item_id: callInfo.previous_item_id,
+        item: {
+          type: 'function_call_output',
+          call_id: response.call_id,
+          output: JSON.stringify({
+            status: 'completed',
+            message: response.message || response.response,
+            claim_id: response.claim_id,
+            timestamp: Date.now()
+          })
+        }
+      }
+      
+      console.log('[VOICE-A2A] 📤 SENDING function_call_output')
+      console.log('[VoiceLive] Full payload:', JSON.stringify(functionOutput, null, 2))
+      
+      wsRef.current.send(JSON.stringify(functionOutput))
+      console.log('[VOICE-A2A] ✅ function_call_output SENT')
+      
+      wsRef.current.send(JSON.stringify({ type: 'response.create' }))
+      console.log('[VOICE-A2A] ✅ response.create SENT - AI should summarize result')
+      
+      // Remove call_id from pending map (workflow complete)
+      pendingA2ACallsRef.current.delete(response.call_id)
+      console.log('[VoiceLive] 🗑️ Removed call_id from pending map (workflow complete)')
+      console.log('[VoiceLive] 📊 Remaining pending calls:', pendingA2ACallsRef.current.size)
     }
-    
-    console.log('[VOICE-A2A] ════════════════════════════════════════════════')
-    console.log('[VOICE-A2A] 📤 STEP 11: SENDING function_call_output')
-    console.log('[VOICE-A2A] ════════════════════════════════════════════════')
-    console.log('[VoiceLive] Full payload:', JSON.stringify(functionOutput, null, 2))
-    
-    wsRef.current.send(JSON.stringify(functionOutput))
-    console.log('[VOICE-A2A] ✅ function_call_output SENT')
-    
-    // Python SDK pattern: Request new response to process the function result (ONLY ONCE)
-    console.log('[VOICE-A2A] ════════════════════════════════════════════════')
-    console.log('[VOICE-A2A] 📤 STEP 12: SENDING response.create')
-    console.log('[VOICE-A2A] ════════════════════════════════════════════════')
-    
-    wsRef.current.send(JSON.stringify({ type: 'response.create' }))
-    console.log('[VOICE-A2A] ✅ response.create SENT - AI should process result')
-    
-    // Remove this call from pending map
-    pendingA2ACallsRef.current.delete(response.call_id)
-    console.log('[VoiceLive] 🗑️ Removed call_id from pending map:', response.call_id)
-    console.log('[VoiceLive] 📊 Remaining pending calls:', pendingA2ACallsRef.current.size)
     console.log('[VoiceLive] ════════════════════════════════════════════════')
     console.log('[VoiceLive] 💉 injectNetworkResponse COMPLETED')
     console.log('[VoiceLive] ════════════════════════════════════════════════')

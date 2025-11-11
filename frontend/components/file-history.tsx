@@ -72,7 +72,17 @@ export function FileHistory({ className, onFileSelect }: FileHistoryProps) {
       uri: fileData.uri || ''
     }
 
-    setFiles(prev => [fileRecord, ...prev].slice(0, 50)) // Keep last 50 files
+    // Deduplicate by URI - check current state to prevent race conditions
+    setFiles(prev => {
+      // Check if file with same URI already exists
+      const isDuplicate = prev.some(f => f.uri === fileRecord.uri)
+      if (isDuplicate) {
+        console.log('[FileHistory] Skipping duplicate file by URI:', fileRecord.uri)
+        return prev // Return unchanged state
+      }
+      // Add new file and keep last 50
+      return [fileRecord, ...prev].slice(0, 50)
+    })
   }
 
   // Expose the function globally so chat-panel can call it

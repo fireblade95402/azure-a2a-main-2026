@@ -459,6 +459,24 @@ export function ChatPanel({ dagNodes, dagLinks, agentMode, enableInterAgentMemor
   // Track Voice Live call IDs for response injection
   const voiceLiveCallMapRef = useRef<Map<string, string>>(new Map()) // messageId -> call_id
   
+  // Use refs to always get the latest values (avoid stale closure)
+  const agentModeRef = useRef(agentMode)
+  const workflowRef = useRef(workflow)
+  const enableInterAgentMemoryRef = useRef(enableInterAgentMemory)
+  
+  // Update refs when props change
+  useEffect(() => {
+    agentModeRef.current = agentMode
+  }, [agentMode])
+  
+  useEffect(() => {
+    workflowRef.current = workflow
+  }, [workflow])
+  
+  useEffect(() => {
+    enableInterAgentMemoryRef.current = enableInterAgentMemory
+  }, [enableInterAgentMemory])
+  
   // Voice Live hook for realtime voice conversations
   const voiceLive = useVoiceLive({
     foundryProjectUrl: process.env.NEXT_PUBLIC_AZURE_AI_FOUNDRY_PROJECT_ENDPOINT || '',
@@ -469,6 +487,17 @@ export function ChatPanel({ dagNodes, dagLinks, agentMode, enableInterAgentMemor
       try {
         console.log('[Voice Live] Sending message to A2A network:', message)
         console.log('[Voice Live] Metadata:', metadata)
+        
+        // Get current values from refs (not stale closure values!)
+        const currentAgentMode = agentModeRef.current
+        const currentWorkflow = workflowRef.current
+        const currentEnableMemory = enableInterAgentMemoryRef.current
+        
+        console.log('[Voice Live] Current settings:', {
+          agentMode: currentAgentMode,
+          workflow: currentWorkflow?.substring(0, 50),
+          enableMemory: currentEnableMemory
+        })
         
         const baseUrl = process.env.NEXT_PUBLIC_A2A_API_URL || 'http://localhost:12000'
         const messageId = `voice_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
@@ -490,9 +519,9 @@ export function ChatPanel({ dagNodes, dagLinks, agentMode, enableInterAgentMemor
               contextId: conversationId,
               role: 'user',
               parts: [{ root: { kind: 'text', text: message } }],
-              agentMode: agentMode,
-              enableInterAgentMemory: enableInterAgentMemory,
-              workflow: agentMode && workflow ? workflow.trim() : undefined
+              agentMode: currentAgentMode,
+              enableInterAgentMemory: currentEnableMemory,
+              workflow: currentAgentMode && currentWorkflow ? currentWorkflow.trim() : undefined
             }
           })
         })
@@ -999,6 +1028,50 @@ export function ChatPanel({ dagNodes, dagLinks, agentMode, enableInterAgentMemor
       }
     }
 
+    // Handle outgoing agent message (Host Agent -> Remote Agent)
+    const handleOutgoingAgentMessage = (data: any) => {
+      console.log("[ChatPanel] 📤 Outgoing agent message received:", data)
+      console.log("[ChatPanel] 📤 Message content:", data.message)
+      console.log("[ChatPanel] 📤 Voice Live connected?", voiceLive.isConnected)
+      console.log("[ChatPanel] 📤 Pending calls in map:", voiceLiveCallMapRef.current.size)
+      
+      // If Voice Live is connected and has a pending call, inject the outgoing message
+      if (!voiceLive.isConnected) {
+        console.log('[Voice Live] ⚠️ Not connected, skipping outgoing message injection')
+        return
+      }
+      
+      if (!data.message) {
+        console.log('[Voice Live] ⚠️ No message in event data, skipping injection')
+        return
+      }
+      
+      if (voiceLiveCallMapRef.current.size === 0) {
+        console.log('[Voice Live] ⚠️ No pending calls in map, skipping injection')
+        return
+      }
+      
+      // Get the most recent call_id (FIFO - first in, first out)
+      const voiceCallIds = Array.from(voiceLiveCallMapRef.current.entries())
+      console.log('[Voice Live] 📤 Injecting outgoing message for call:', voiceCallIds[0])
+      
+      if (voiceCallIds.length > 0) {
+        const [messageId, callId] = voiceCallIds[0]
+        
+        console.log('[Voice Live] 📤 Injecting to call_id:', callId)
+        console.log('[Voice Live] 📤 Message to inject:', data.message)
+        
+        // Inject the outgoing message so Voice Live speaks it
+        voiceLive.injectNetworkResponse({
+          call_id: callId,
+          message: data.message,
+          status: 'in_progress'  // Mark as in_progress, not completed yet
+        })
+        
+        console.log('[Voice Live] ✅ Outgoing message injected successfully')
+      }
+    }
+
     // Subscribe to real Event Hub events from A2A backend
     subscribe("task_updated", handleTaskUpdate)
     subscribe("task_created", handleTaskCreated)
@@ -1016,6 +1089,7 @@ export function ChatPanel({ dagNodes, dagLinks, agentMode, enableInterAgentMemor
     subscribe("tool_response", handleToolResponse)
     subscribe("remote_agent_activity", handleRemoteAgentActivity)
     subscribe("file_uploaded", handleFileUploaded)
+    subscribe("outgoing_agent_message", handleOutgoingAgentMessage)
 
     return () => {
       unsubscribe("task_updated", handleTaskUpdate)
@@ -1034,8 +1108,9 @@ export function ChatPanel({ dagNodes, dagLinks, agentMode, enableInterAgentMemor
       unsubscribe("tool_response", handleToolResponse)
       unsubscribe("remote_agent_activity", handleRemoteAgentActivity)
       unsubscribe("file_uploaded", handleFileUploaded)
+      unsubscribe("outgoing_agent_message", handleOutgoingAgentMessage)
     }
-  }, [subscribe, unsubscribe, emit, sendMessage, processedMessageIds])
+  }, [subscribe, unsubscribe, emit, sendMessage, processedMessageIds, voiceLive])
 
   // Check authentication status and show welcome message only when logged in
   useEffect(() => {
