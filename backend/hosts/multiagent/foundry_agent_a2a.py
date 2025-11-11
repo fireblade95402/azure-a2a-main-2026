@@ -1239,16 +1239,20 @@ class FoundryHostAgent2:
         await self._emit_status_event("Initializing Agent Mode orchestration...", context_id)
         
         # Handle conversation continuity - distinguish new goals from follow-up clarifications
-        if context_id in self._active_conversations:
-            # User is providing additional information for an existing goal
+        # FIXED: Don't treat workflow iterations as follow-ups - they should continue in one loop
+        if context_id in self._active_conversations and not workflow:
+            # User is providing additional information for an existing goal (only for non-workflow mode)
             original_goal = self._active_conversations[context_id]
             goal_text = f"{original_goal}\n\n[Additional Information Provided]: {user_message}"
             print(f"🔄 [Agent Mode] Follow-up detected - appending to original goal")
         else:
-            # Fresh conversation - establish new goal
+            # Fresh conversation OR workflow mode - establish goal
             goal_text = user_message
-            self._active_conversations[context_id] = user_message
-            print(f"🆕 [Agent Mode] New conversation started")
+            if context_id not in self._active_conversations:
+                self._active_conversations[context_id] = user_message
+                print(f"🆕 [Agent Mode] New conversation started")
+            else:
+                print(f"🔄 [Agent Mode] Continuing workflow - NOT treating as follow-up")
         
         # Initialize execution plan with empty task list
         plan = AgentModePlan(goal=goal_text, goal_status="incomplete")
@@ -1478,16 +1482,19 @@ Analyze the plan and determine the next step. If you need information that isn't
                         if recommended_agent and recommended_agent in self.cards:
                             log_debug(f"🚀 [Agent Mode] Calling agent: {recommended_agent}")
                             
-                            # File deduplication for image editing workflows ONLY
-                            # For editing workflows (base/mask/overlay), keep only the latest version of each role
-                            # For generation workflows, keep ALL artifacts (they're different results, not iterations)
+                            # File deduplication for agent mode workflows
+                            # Keep only the most recent files to prevent accumulation across workflow iterations
                             if hasattr(session_context, '_latest_processed_parts') and len(session_context._latest_processed_parts) > 1:
                                 from collections import defaultdict
                                 old_count = len(session_context._latest_processed_parts)
                                 
+                                # Maximum number of generated files to keep (most recent N)
+                                # This prevents accumulation when workflows have many iterations
+                                MAX_GENERATED_FILES = 3
+                                
                                 # Separate artifacts with editing roles (base/mask/overlay) from generated outputs
                                 editing_roles = defaultdict(lambda: None)  # For base/mask/overlay - keep latest only
-                                generated_artifacts = []  # For generated images/files - keep ALL
+                                generated_artifacts = []  # For generated images/files - keep only most recent N
                                 
                                 for part in reversed(session_context._latest_processed_parts):  # reversed = most recent first
                                     role = None
@@ -1502,18 +1509,19 @@ Analyze the plan and determine the next step. If you need information that isn't
                                         if role not in editing_roles:
                                             editing_roles[role] = part
                                     else:
-                                        # Keep ALL generated artifacts (no role or other roles)
-                                        # These are different outputs, not iterations of the same file
-                                        generated_artifacts.append(part)
+                                        # Keep only the most recent N generated artifacts to prevent accumulation
+                                        # This prevents passing 17+ files to agents like Image Analysis
+                                        if len(generated_artifacts) < MAX_GENERATED_FILES:
+                                            generated_artifacts.append(part)
                                 
-                                # Combine: editing roles (deduplicated) + ALL generated artifacts  
+                                # Combine: editing roles (deduplicated) + most recent N generated artifacts  
                                 # Keep generated_artifacts in newest-first order (from reversed iteration)
                                 # This ensures the LATEST generated image is FIRST, so it's used as base for next edit
                                 deduplicated_parts = list(editing_roles.values()) + generated_artifacts
                                 session_context._latest_processed_parts = deduplicated_parts
                                 print(f"📎 [Agent Mode] File management: {old_count} files → {len(deduplicated_parts)} files")
                                 print(f"   • Editing roles (deduplicated): {len(editing_roles)} (base/mask/overlay)")
-                                print(f"   • Generated artifacts (all kept, newest first): {len(generated_artifacts)}")
+                                print(f"   • Generated artifacts (kept {len(generated_artifacts)} most recent, max {MAX_GENERATED_FILES})")
                             
                             # Create dummy tool context for send_message
                             dummy_context = DummyToolContext(session_context, self._azure_blob_client)
@@ -1791,9 +1799,16 @@ Analyze the plan and determine the next step. If you need information that isn't
                     "contextId": context_id
                 }
                 
+                print(f"📤 [OUTGOING MESSAGE EVENT] Emitting to frontend:")
+                print(f"   • Target Agent: {target_agent_name}")
+                print(f"   • Message: {message[:100]}..." if len(message) > 100 else f"   • Message: {message}")
+                print(f"   • Context ID: {context_id}")
+                
                 await streamer._send_event("outgoing_agent_message", event_data, context_id)
+                print(f"✅ [OUTGOING MESSAGE EVENT] Emitted successfully")
                 
         except Exception as e:
+            print(f"❌ [OUTGOING MESSAGE EVENT] Error: {e}")
             log_debug(f"Error emitting outgoing message event: {e}")
             pass
 
@@ -4346,7 +4361,7 @@ Original request: {message}"""
                     text = response
                 else:
                     text = json.dumps(response, ensure_ascii=False)
-                text_part = TextPart(kind="text", text=text)
+                text_part = TextPart(text=text)  # Don't pass kind - it's inferred from the class
                 part = Part(root=text_part)
                 response_parts.append(part)
                 print(f"✅ Step 3.{i+1}: Created Part successfully")
