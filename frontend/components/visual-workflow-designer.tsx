@@ -3,12 +3,14 @@
 import type React from "react"
 import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { X, Plus, Trash2, Download, Upload, Library, X as CloseIcon, Send, Loader2, PlayCircle, StopCircle } from "lucide-react"
+import { X, Plus, Trash2, Download, Upload, Library, X as CloseIcon, Send, Loader2, PlayCircle, StopCircle, Phone, PhoneOff } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { WorkflowCatalog } from "./workflow-catalog"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useEventHub } from "@/hooks/use-event-hub"
+import { useVoiceLive } from "@/hooks/use-voice-live"
+import { getScenarioById } from "@/lib/voice-scenarios"
 
 interface WorkflowStep {
   id: string
@@ -122,6 +124,149 @@ export function VisualWorkflowDesigner({
   
   // Event Hub for live updates
   const { subscribe, unsubscribe } = useEventHub()
+  
+  // Track Voice Live call IDs for response injection
+  const voiceLiveCallMapRef = useRef<Map<string, string>>(new Map()) // messageId -> call_id
+  
+  // Helper function to generate workflow text from current refs (used by voiceLive hook)
+  const generateWorkflowTextFromRefs = (): string => {
+    const steps = workflowStepsRef.current
+    const conns = connectionsRef.current
+    
+    if (steps.length === 0) return ""
+    
+    // If connections exist, use them to determine order
+    if (conns.length > 0) {
+      const visited = new Set<string>()
+      const result: WorkflowStep[] = []
+      
+      const connectedStepIds = new Set<string>()
+      conns.forEach(conn => {
+        connectedStepIds.add(conn.fromStepId)
+        connectedStepIds.add(conn.toStepId)
+      })
+      
+      const hasIncoming = new Set(conns.map(c => c.toStepId))
+      const rootNodes = steps.filter(step => 
+        connectedStepIds.has(step.id) && !hasIncoming.has(step.id)
+      )
+      
+      const dfs = (stepId: string) => {
+        if (visited.has(stepId)) return
+        visited.add(stepId)
+        
+        const step = steps.find(s => s.id === stepId)
+        if (step) {
+          result.push(step)
+          const outgoing = conns.filter(c => c.fromStepId === stepId)
+          outgoing.forEach(conn => dfs(conn.toStepId))
+        }
+      }
+      
+      rootNodes.forEach(node => dfs(node.id))
+      
+      // Generate text ONLY from connected nodes
+      return result.map((step, index) => 
+        `${index + 1}. ${step.description || `Use the ${step.agentName} agent`}`
+      ).join('\n')
+    } else {
+      // No connections - use visual order
+      const sortedSteps = [...steps].sort((a, b) => a.order - b.order)
+      return sortedSteps.map((step, index) => 
+        `${index + 1}. ${step.description || `Use the ${step.agentName} agent`}`
+      ).join('\n')
+    }
+  }
+  
+  // Voice Live hook for speaking agent messages
+  const voiceLive = useVoiceLive({
+    foundryProjectUrl: process.env.NEXT_PUBLIC_AZURE_AI_FOUNDRY_PROJECT_ENDPOINT || '',
+    model: process.env.NEXT_PUBLIC_VOICE_MODEL || 'gpt-realtime',
+    scenario: getScenarioById('host-agent-chat'),
+    onSendToA2A: async (message: string, metadata?: any) => {
+      // Send message through the test workflow
+      try {
+        console.log('[Voice Live] Sending message to workflow test:', message)
+        console.log('[Voice Live] Metadata:', metadata)
+        
+        const messageId = `voice_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        
+        // Store the mapping of messageId to Voice Live call_id
+        if (metadata?.tool_call_id) {
+          voiceLiveCallMapRef.current.set(messageId, metadata.tool_call_id)
+          console.log('[Voice Live] Stored call mapping:', messageId, '->', metadata.tool_call_id)
+        }
+        
+        // Set the test input and trigger testing
+        setTestInput(message)
+        
+        // Small delay to ensure state is updated
+        await new Promise(resolve => setTimeout(resolve, 100))
+        
+        // Trigger the test
+        const currentWorkflowText = generateWorkflowTextFromRefs()
+        if (!currentWorkflowText) {
+          console.error('[Voice Live] No workflow to test')
+          return 'workflow-test'
+        }
+        
+        setIsTesting(true)
+        setTestMessages([{ role: "user", content: message }])
+        setStepStatuses(new Map())
+        stepStatusesRef.current = new Map()
+        
+        const baseUrl = process.env.NEXT_PUBLIC_A2A_API_URL || 'http://localhost:12000'
+        
+        const parts: any[] = [
+          {
+            root: {
+              kind: 'text',
+              text: message
+            }
+          }
+        ]
+        
+        const response = await fetch(`${baseUrl}/message/send`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            params: {
+              messageId,
+              contextId: 'workflow-test',
+              parts: parts,
+              role: 'user',
+              agentMode: true,
+              enableInterAgentMemory: true,
+              workflow: currentWorkflowText
+            }
+          })
+        })
+        
+        if (!response.ok) {
+          console.error('[Voice Live] Failed to send message:', response.statusText)
+          throw new Error(`Failed to send message: ${response.statusText}`)
+        }
+        
+        console.log('[Voice Live] Message sent successfully')
+        
+        // Set timeout
+        if (testTimeoutRef.current) {
+          clearTimeout(testTimeoutRef.current)
+        }
+        testTimeoutRef.current = setTimeout(() => {
+          console.log('[WorkflowTest] Test timeout reached (10 minutes), stopping...')
+          setIsTesting(false)
+        }, 600000)
+        
+        return 'workflow-test'
+      } catch (error) {
+        console.error('[Voice Live] Error sending to A2A:', error)
+        throw error
+      }
+    }
+  })
   
   // Agent dragging
   const [draggingStepId, setDraggingStepId] = useState<string | null>(null)
@@ -663,6 +808,26 @@ export function VisualWorkflowDesigner({
           stepStatusesRef.current = newMap
           return newMap
         })
+        
+        // Inject into Voice Live if connected
+        if (voiceLive.isConnected && voiceLiveCallMapRef.current.size > 0) {
+          const voiceCallIds = Array.from(voiceLiveCallMapRef.current.entries())
+          console.log('[Voice Live] 💬 Injecting final response for call:', voiceCallIds[0])
+          
+          if (voiceCallIds.length > 0) {
+            const [messageId, callId] = voiceCallIds[0]
+            
+            voiceLive.injectNetworkResponse({
+              call_id: callId,
+              message: fullContent,
+              status: 'completed'
+            })
+            
+            // Remove from map
+            voiceLiveCallMapRef.current.delete(messageId)
+            console.log('[Voice Live] ✅ Final response injected successfully')
+          }
+        }
       }
     }
     
@@ -741,6 +906,24 @@ export function VisualWorkflowDesigner({
             return prev
           })
         }, 8000)
+        
+        // Inject into Voice Live if connected
+        if (voiceLive.isConnected && voiceLiveCallMapRef.current.size > 0) {
+          const voiceCallIds = Array.from(voiceLiveCallMapRef.current.entries())
+          console.log('[Voice Live] 📤 Injecting outgoing message for call:', voiceCallIds[0])
+          
+          if (voiceCallIds.length > 0) {
+            const [messageId, callId] = voiceCallIds[0]
+            
+            voiceLive.injectNetworkResponse({
+              call_id: callId,
+              message: data.message,
+              status: 'in_progress'  // Mark as in_progress, not completed yet
+            })
+            
+            console.log('[Voice Live] ✅ Outgoing message injected successfully')
+          }
+        }
       }
     }
     
@@ -877,56 +1060,6 @@ export function VisualWorkflowDesigner({
   }
   
   // Handle test workflow submission
-  // Helper function to generate workflow text from current refs
-  const generateWorkflowTextFromRefs = (): string => {
-    const steps = workflowStepsRef.current
-    const conns = connectionsRef.current
-    
-    if (steps.length === 0) return ""
-    
-    // If connections exist, use them to determine order
-    if (conns.length > 0) {
-      const visited = new Set<string>()
-      const result: WorkflowStep[] = []
-      
-      const connectedStepIds = new Set<string>()
-      conns.forEach(conn => {
-        connectedStepIds.add(conn.fromStepId)
-        connectedStepIds.add(conn.toStepId)
-      })
-      
-      const hasIncoming = new Set(conns.map(c => c.toStepId))
-      const rootNodes = steps.filter(step => 
-        connectedStepIds.has(step.id) && !hasIncoming.has(step.id)
-      )
-      
-      const dfs = (stepId: string) => {
-        if (visited.has(stepId)) return
-        visited.add(stepId)
-        
-        const step = steps.find(s => s.id === stepId)
-        if (step) {
-          result.push(step)
-          const outgoing = conns.filter(c => c.fromStepId === stepId)
-          outgoing.forEach(conn => dfs(conn.toStepId))
-        }
-      }
-      
-      rootNodes.forEach(node => dfs(node.id))
-      
-      // Generate text ONLY from connected nodes
-      return result.map((step, index) => 
-        `${index + 1}. ${step.description || `Use the ${step.agentName} agent`}`
-      ).join('\n')
-    } else {
-      // No connections - use visual order
-      const sortedSteps = [...steps].sort((a, b) => a.order - b.order)
-      return sortedSteps.map((step, index) => 
-        `${index + 1}. ${step.description || `Use the ${step.agentName} agent`}`
-      ).join('\n')
-    }
-  }
-  
   const handleTestSubmit = async () => {
     if (!testInput.trim()) return
     
@@ -2431,6 +2564,28 @@ export function VisualWorkflowDesigner({
                   disabled={isTesting}
                   className="flex-1 text-sm h-8"
                 />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={isTesting}
+                  onClick={voiceLive.isConnected ? voiceLive.stopVoiceConversation : voiceLive.startVoiceConversation}
+                  className={`h-8 ${
+                    voiceLive.isConnected 
+                      ? 'bg-green-100 text-green-600 hover:bg-green-200' 
+                      : voiceLive.error 
+                      ? 'bg-red-100 text-red-600' 
+                      : ''
+                  }`}
+                  title={
+                    voiceLive.isConnected 
+                      ? 'End voice conversation' 
+                      : voiceLive.error 
+                      ? `Error: ${voiceLive.error}` 
+                      : 'Start voice conversation'
+                  }
+                >
+                  {voiceLive.isConnected ? <PhoneOff className="h-3 w-3" /> : <Phone className="h-3 w-3" />}
+                </Button>
                 <Button
                   onClick={handleTestSubmit}
                   disabled={!testInput.trim() || isTesting}
