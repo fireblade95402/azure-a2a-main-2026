@@ -570,6 +570,20 @@ export function useVoiceLive(config: VoiceLiveConfig): VoiceLiveHook {
     console.log('[VOICE-A2A] status:', response.status || 'completed')
     console.log('[VOICE-A2A] message:', response.message)
     console.log('[VOICE-A2A] previous_item_id:', callInfo.previous_item_id)
+    console.log('[VOICE-A2A] activeResponseRef.current:', activeResponseRef.current)
+
+    // Check if there's already an active response
+    if (activeResponseRef.current) {
+      console.warn('[VOICE-A2A] ⚠️ Active response detected - queuing injection to avoid error')
+      console.warn('[VOICE-A2A] Will retry after a short delay...')
+      
+      // Retry after a short delay (100ms) to allow current response to complete
+      setTimeout(() => {
+        console.log('[VOICE-A2A] 🔄 Retrying injection after delay...')
+        injectNetworkResponse(response)
+      }, 100)
+      return
+    }
 
     const isInProgress = response.status === 'in_progress'
     
@@ -596,6 +610,10 @@ export function useVoiceLive(config: VoiceLiveConfig): VoiceLiveHook {
       
       wsRef.current.send(JSON.stringify(userMessage))
       console.log('[VOICE-A2A] ✅ User message SENT')
+      
+      // Mark that we're creating a response
+      activeResponseRef.current = true
+      console.log('[VOICE-A2A] 📊 Set activeResponseRef = true')
       
       // Trigger Voice Live to respond to this user message
       wsRef.current.send(JSON.stringify({ type: 'response.create' }))
@@ -628,6 +646,10 @@ export function useVoiceLive(config: VoiceLiveConfig): VoiceLiveHook {
       
       wsRef.current.send(JSON.stringify(functionOutput))
       console.log('[VOICE-A2A] ✅ function_call_output SENT')
+      
+      // Mark that we're creating a response
+      activeResponseRef.current = true
+      console.log('[VOICE-A2A] 📊 Set activeResponseRef = true')
       
       wsRef.current.send(JSON.stringify({ type: 'response.create' }))
       console.log('[VOICE-A2A] ✅ response.create SENT - AI should summarize result')

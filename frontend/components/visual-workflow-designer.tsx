@@ -120,6 +120,8 @@ export function VisualWorkflowDesigner({
   const workflowStepsMapRef = useRef<Map<string, WorkflowStep>>(new Map())
   const imageCache = useRef<Map<string, HTMLImageElement>>(new Map())
   const testTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  // Track which step is currently active for each agent (prevents late events from going to wrong step)
+  const activeStepPerAgentRef = useRef<Map<string, string>>(new Map())
   const [hostMessage, setHostMessage] = useState<{ message: string, target: string } | null>(null)
   
   // Event Hub for live updates
@@ -214,6 +216,7 @@ export function VisualWorkflowDesigner({
         setTestMessages([{ role: "user", content: message }])
         setStepStatuses(new Map())
         stepStatusesRef.current = new Map()
+        activeStepPerAgentRef.current = new Map() // Clear active step assignments
         
         const baseUrl = process.env.NEXT_PUBLIC_A2A_API_URL || 'http://localhost:12000'
         
@@ -304,6 +307,33 @@ export function VisualWorkflowDesigner({
   useEffect(() => {
     stepStatusesRef.current = stepStatuses
   }, [stepStatuses])
+  
+  // Auto-stop workflow when all steps are completed
+  useEffect(() => {
+    if (!isTesting || workflowSteps.length === 0) return
+    
+    // Check if all workflow steps are completed
+    const allStepsCompleted = workflowSteps.every(step => {
+      const status = stepStatuses.get(step.id)
+      return status?.status === "completed"
+    })
+    
+    if (allStepsCompleted) {
+      console.log("[WorkflowTest] 🎉 All steps completed! Auto-stopping workflow in 2 seconds...")
+      // Auto-stop after 2 seconds to let user see the completion
+      const timeoutId = setTimeout(() => {
+        console.log("[WorkflowTest] ✅ Auto-stopping workflow")
+        setIsTesting(false)
+        setTestMessages([])
+        setStepStatuses(new Map())
+        stepStatusesRef.current = new Map()
+        activeStepPerAgentRef.current = new Map()
+        setHostMessage(null)
+      }, 2000)
+      
+      return () => clearTimeout(timeoutId)
+    }
+  }, [stepStatuses, workflowSteps, isTesting])
   
   // Sync workflowOrderMap to ref for synchronous access in event handlers
   useEffect(() => {
@@ -500,9 +530,24 @@ export function VisualWorkflowDesigner({
     console.log("[WorkflowTest] 🎬 Setting up event listeners for testing session")
     
     // Helper to find the FIRST uncompleted step for an agent (sequential workflow!)
-    // Returns null if agent not in workflow OR if previous steps aren't completed
+    // CRITICAL: Uses sticky assignment - once a step is assigned to an agent, keep using it until completed
     const findStepForAgent = (agentName: string): string | null => {
       if (!agentName) return null
+      
+      // Check if we already have an active step for this agent (sticky assignment)
+      const existingActiveStep = activeStepPerAgentRef.current.get(agentName)
+      if (existingActiveStep) {
+        const status = stepStatusesRef.current.get(existingActiveStep)
+        // Keep using this step unless it's completed
+        if (status?.status !== "completed") {
+          console.log("[WorkflowTest] 📌 Using existing active step for", agentName, ":", existingActiveStep)
+          return existingActiveStep
+        } else {
+          // Step completed, clear the active assignment
+          console.log("[WorkflowTest] ✅ Step completed, clearing active assignment for", agentName)
+          activeStepPerAgentRef.current.delete(agentName)
+        }
+      }
       
       // Normalize for comparison (no fuzzy includes!)
       const normalizedEventName = agentName.toLowerCase().trim().replace(/[-_]/g, ' ')
@@ -560,12 +605,33 @@ export function VisualWorkflowDesigner({
         return targetStepId
       }
       
-      // NOTE: Removed strict sequential validation - the backend already handles sequential execution.
-      // The UI should display events as they come in, not block them.
-      // Previous validation was blocking legitimate updates to steps 4, 5, etc. when step 3
-      // was still in "working" state, even though the backend was executing correctly.
+      // CRITICAL: Before assigning this step, check if ALL previous steps in workflow have started
+      // This prevents late events from step 1 jumping to step 4 when steps 2-3 haven't run yet
+      const targetOrder = workflowOrderMapRef.current.get(targetStepId) || 999
+      let canAssign = true
       
-      console.log("[WorkflowTest] ✅ Found uncompleted step for", agentName, ":", targetStepId, "order:", targetStepOrder)
+      // Check all steps in the workflow that come before this one
+      for (const [stepId, order] of workflowOrderMapRef.current.entries()) {
+        if (order < targetOrder) {
+          const prevStatus = stepStatusesRef.current.get(stepId)
+          // If a previous step hasn't even started, we can't jump to this step yet
+          if (!prevStatus) {
+            canAssign = false
+            console.log("[WorkflowTest] ⚠️ Cannot assign step", targetStepId, "for", agentName, "- previous step", stepId, "hasn't started yet")
+            break
+          }
+        }
+      }
+      
+      if (!canAssign) {
+        // Return null to ignore this event - workflow hasn't reached this step yet
+        return null
+      }
+      
+      // Assign this step as the active one for this agent (sticky assignment)
+      activeStepPerAgentRef.current.set(agentName, targetStepId)
+      console.log("[WorkflowTest] ✅ Assigned active step for", agentName, ":", targetStepId, "order:", targetStepOrder)
+      
       return targetStepId
     }
     
@@ -576,6 +642,22 @@ export function VisualWorkflowDesigner({
       
       const stepId = findStepForAgent(agentName)
       if (!stepId) return
+      
+      // CRITICAL FIX: Update ref immediately to prevent race conditions with rapid events
+      const currentStatus = stepStatusesRef.current.get(stepId)
+      const newStatus = status?.includes("completed") ? "completed" : 
+                       currentStatus?.status === "completed" ? "completed" : 
+                       "working"
+      const immediateUpdate = new Map(stepStatusesRef.current)
+      immediateUpdate.set(stepId, {
+        ...currentStatus,
+        status: newStatus,
+        message: currentStatus?.message || status,
+        completedAt: newStatus === "completed" && currentStatus?.status !== "completed" 
+          ? Date.now() 
+          : currentStatus?.completedAt
+      })
+      stepStatusesRef.current = immediateUpdate
       
       setStepStatuses(prev => {
         const newMap = new Map(prev)
@@ -595,7 +677,6 @@ export function VisualWorkflowDesigner({
             ? Date.now() 
             : currentStatus?.completedAt
         })
-        stepStatusesRef.current = newMap
         return newMap
       })
     }
@@ -607,6 +688,19 @@ export function VisualWorkflowDesigner({
       
       const stepId = findStepForAgent(agentName)
       if (!stepId) return
+      
+      // CRITICAL FIX: Update ref immediately
+      const currentStatus = stepStatusesRef.current.get(stepId)
+      const newStatus = state === "completed" ? "completed" : 
+                       state === "failed" ? "failed" : 
+                       currentStatus?.status === "completed" ? "completed" :
+                       "working"
+      const immediateUpdate = new Map(stepStatusesRef.current)
+      immediateUpdate.set(stepId, {
+        ...currentStatus,
+        status: newStatus
+      })
+      stepStatusesRef.current = immediateUpdate
       
       setStepStatuses(prev => {
         const newMap = new Map(prev)
@@ -622,7 +716,6 @@ export function VisualWorkflowDesigner({
           ...currentStatus,
           status: newStatus
         })
-        stepStatusesRef.current = newMap
         return newMap
       })
     }
@@ -635,6 +728,16 @@ export function VisualWorkflowDesigner({
         const stepId = findStepForAgent(agentName)
         if (!stepId) return
         
+        // CRITICAL FIX: Update ref immediately
+        const currentStatus = stepStatusesRef.current.get(stepId)
+        const immediateUpdate = new Map(stepStatusesRef.current)
+        immediateUpdate.set(stepId, { 
+          ...currentStatus,
+          status: currentStatus?.status === "completed" ? "completed" : "working",
+          message: content 
+        })
+        stepStatusesRef.current = immediateUpdate
+        
         setStepStatuses(prev => {
           const newMap = new Map(prev)
           const currentStatus = prev.get(stepId)
@@ -643,7 +746,6 @@ export function VisualWorkflowDesigner({
             status: currentStatus?.status === "completed" ? "completed" : "working",
             message: content 
           })
-          stepStatusesRef.current = newMap
           return newMap
         })
       }
@@ -657,6 +759,17 @@ export function VisualWorkflowDesigner({
         if (!stepId) return
         
         const message = `🛠️ Calling ${data.toolName}`
+        
+        // CRITICAL FIX: Update ref immediately
+        const currentStatus = stepStatusesRef.current.get(stepId)
+        const immediateUpdate = new Map(stepStatusesRef.current)
+        immediateUpdate.set(stepId, { 
+          ...currentStatus,
+          status: currentStatus?.status === "completed" ? "completed" : "working",
+          message 
+        })
+        stepStatusesRef.current = immediateUpdate
+        
         setStepStatuses(prev => {
           const newMap = new Map(prev)
           const currentStatus = prev.get(stepId)
@@ -665,7 +778,6 @@ export function VisualWorkflowDesigner({
             status: currentStatus?.status === "completed" ? "completed" : "working",
             message 
           })
-          stepStatusesRef.current = newMap
           return newMap
         })
       }
@@ -681,6 +793,17 @@ export function VisualWorkflowDesigner({
         const message = data.status === "success" 
           ? `✅ ${data.toolName} completed`
           : `❌ ${data.toolName} failed`
+        
+        // CRITICAL FIX: Update ref immediately
+        const currentStatus = stepStatusesRef.current.get(stepId)
+        const immediateUpdate = new Map(stepStatusesRef.current)
+        immediateUpdate.set(stepId, { 
+          ...currentStatus,
+          status: currentStatus?.status === "completed" ? "completed" : "working",
+          message 
+        })
+        stepStatusesRef.current = immediateUpdate
+        
         setStepStatuses(prev => {
           const newMap = new Map(prev)
           const currentStatus = prev.get(stepId)
@@ -689,7 +812,6 @@ export function VisualWorkflowDesigner({
             status: currentStatus?.status === "completed" ? "completed" : "working",
             message 
           })
-          stepStatusesRef.current = newMap
           return newMap
         })
       }
@@ -702,6 +824,16 @@ export function VisualWorkflowDesigner({
         const stepId = findStepForAgent(data.agentName)
         if (!stepId) return
         
+        // CRITICAL FIX: Update ref immediately
+        const currentStatus = stepStatusesRef.current.get(stepId)
+        const immediateUpdate = new Map(stepStatusesRef.current)
+        immediateUpdate.set(stepId, { 
+          ...currentStatus,
+          status: currentStatus?.status === "completed" ? "completed" : "working",
+          message: data.activity 
+        })
+        stepStatusesRef.current = immediateUpdate
+        
         setStepStatuses(prev => {
           const newMap = new Map(prev)
           const currentStatus = prev.get(stepId)
@@ -710,7 +842,6 @@ export function VisualWorkflowDesigner({
             status: currentStatus?.status === "completed" ? "completed" : "working",
             message: data.activity 
           })
-          stepStatusesRef.current = newMap
           return newMap
         })
       }
@@ -737,6 +868,17 @@ export function VisualWorkflowDesigner({
         if (!stepId) return
         
         console.log("[WorkflowTest] ✨ Setting message for", rawAgentName, "step:", stepId, ":", messageText.substring(0, 100) + "...")
+        
+        // CRITICAL FIX: Update ref immediately
+        const currentStatus = stepStatusesRef.current.get(stepId)
+        const immediateUpdate = new Map(stepStatusesRef.current)
+        immediateUpdate.set(stepId, { 
+          ...currentStatus,
+          status: currentStatus?.status || "working",
+          message: messageText 
+        })
+        stepStatusesRef.current = immediateUpdate
+        
         setTestMessages(prev => [...prev, { role: "assistant", content: messageText, agent: rawAgentName }])
         setStepStatuses(prev => {
           const newMap = new Map(prev)
@@ -747,7 +889,6 @@ export function VisualWorkflowDesigner({
             status: currentStatus?.status || "working",
             message: messageText 
           })
-          stepStatusesRef.current = newMap
           return newMap
         })
       } else {
@@ -766,6 +907,16 @@ export function VisualWorkflowDesigner({
         const fullContent = data.content
         console.log("[WorkflowTest] ✨ Setting REMOTE AGENT response for", data.agentName, "step:", stepId, ":", fullContent.substring(0, 100) + "...")
         
+        // CRITICAL FIX: Update ref immediately
+        const currentStatus = stepStatusesRef.current.get(stepId)
+        const immediateUpdate = new Map(stepStatusesRef.current)
+        immediateUpdate.set(stepId, { 
+          ...currentStatus,
+          status: currentStatus?.status === "completed" ? "completed" : "working",
+          message: fullContent 
+        })
+        stepStatusesRef.current = immediateUpdate
+        
         setStepStatuses(prev => {
           const newMap = new Map(prev)
           const currentStatus = prev.get(stepId)
@@ -774,7 +925,6 @@ export function VisualWorkflowDesigner({
             status: currentStatus?.status === "completed" ? "completed" : "working",
             message: fullContent 
           })
-          stepStatusesRef.current = newMap
           return newMap
         })
       } else {
@@ -793,6 +943,31 @@ export function VisualWorkflowDesigner({
         const fullContent = data.message.content
         console.log("[WorkflowTest] ✨ Setting final response for", data.message.agent, "step:", stepId, ":", fullContent.substring(0, 100) + "...")
         
+        // CRITICAL FIX: Update ref immediately to mark as completed
+        const currentStatus = stepStatusesRef.current.get(stepId)
+        const immediateUpdate = new Map(stepStatusesRef.current)
+        immediateUpdate.set(stepId, { 
+          ...currentStatus,
+          status: "completed",
+          message: fullContent,
+          completedAt: currentStatus?.status !== "completed" ? Date.now() : currentStatus?.completedAt
+        })
+        stepStatusesRef.current = immediateUpdate
+        
+        // Check if this is the last step in the workflow
+        const stepOrder = workflowOrderMapRef.current.get(stepId)
+        const maxOrder = Math.max(...Array.from(workflowOrderMapRef.current.values()))
+        const isLastStep = stepOrder === maxOrder
+        
+        if (isLastStep) {
+          console.log("[WorkflowTest] 🎉 Last step completed! Auto-stopping workflow in 2 seconds...")
+          // Auto-stop after 2 seconds to let user see the completion
+          setTimeout(() => {
+            console.log("[WorkflowTest] ✅ Auto-stopping workflow")
+            handleStopTest()
+          }, 2000)
+        }
+        
         setTestMessages(prev => [...prev, { role: "assistant", content: fullContent, agent: data.message.agent }])
         setStepStatuses(prev => {
           const newMap = new Map(prev)
@@ -805,7 +980,6 @@ export function VisualWorkflowDesigner({
             // Add timestamp when completing
             completedAt: currentStatus?.status !== "completed" ? Date.now() : currentStatus?.completedAt
           })
-          stepStatusesRef.current = newMap
           return newMap
         })
         
@@ -848,6 +1022,16 @@ export function VisualWorkflowDesigner({
         const isImage = contentType.startsWith("image/")
         console.log("[WorkflowTest] 🖼️ Setting", isImage ? "image" : "file", "for step:", stepId)
         
+        // CRITICAL FIX: Update ref immediately
+        const currentStatus = stepStatusesRef.current.get(stepId)
+        const immediateUpdate = new Map(stepStatusesRef.current)
+        immediateUpdate.set(stepId, { 
+          ...currentStatus,
+          imageUrl: isImage ? fileUri : undefined,
+          fileName: fileName
+        })
+        stepStatusesRef.current = immediateUpdate
+        
         setStepStatuses(prev => {
           const newMap = new Map(prev)
           const currentStatus = prev.get(stepId)
@@ -857,7 +1041,6 @@ export function VisualWorkflowDesigner({
             imageUrl: isImage ? fileUri : undefined,
             fileName: fileName
           })
-          stepStatusesRef.current = newMap
           return newMap
         })
       }
@@ -870,6 +1053,16 @@ export function VisualWorkflowDesigner({
         const stepId = findStepForAgent(data.agent)
         if (!stepId) return
         
+        // CRITICAL FIX: Update ref immediately
+        const currentStatus = stepStatusesRef.current.get(stepId)
+        const immediateUpdate = new Map(stepStatusesRef.current)
+        immediateUpdate.set(stepId, { 
+          ...currentStatus,
+          status: currentStatus?.status === "completed" ? "completed" : "working",
+          message: data.status 
+        })
+        stepStatusesRef.current = immediateUpdate
+        
         setStepStatuses(prev => {
           const newMap = new Map(prev)
           const currentStatus = prev.get(stepId)
@@ -878,7 +1071,6 @@ export function VisualWorkflowDesigner({
             status: currentStatus?.status === "completed" ? "completed" : "working",
             message: data.status 
           })
-          stepStatusesRef.current = newMap
           return newMap
         })
       }
@@ -1075,6 +1267,7 @@ export function VisualWorkflowDesigner({
     setTestMessages([{ role: "user", content: testInput }])
     setStepStatuses(new Map())
     stepStatusesRef.current = new Map()
+    activeStepPerAgentRef.current = new Map() // Clear active step assignments
     
     console.log("[WorkflowTest] 🚀 Starting test with workflow:", currentWorkflowText)
     
@@ -1158,6 +1351,7 @@ export function VisualWorkflowDesigner({
     setTestMessages([])
     setStepStatuses(new Map())
     stepStatusesRef.current = new Map()
+    activeStepPerAgentRef.current = new Map() // Clear active step assignments
     setHostMessage(null)
   }
   
