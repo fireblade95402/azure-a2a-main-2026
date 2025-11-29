@@ -984,11 +984,26 @@ export function VisualWorkflowDesigner({
         })
         stepStatusesRef.current = immediateUpdate
         
-        // If this step is currently waiting, update the waiting message too
+        // If this step is currently waiting, only update message if it's from the SAME agent
+        // Don't let host agent or other agent content overwrite the waiting message
         setWaitingStepId(currentWaitingId => {
           if (currentWaitingId === stepId && shouldUpdateMessage) {
-            console.log("[WorkflowTest] 📋 Updating waiting message from agent_message:", content?.substring?.(0, 100))
-            setWaitingMessage(content)
+            // Check if this message is actually from the waiting step's agent
+            const waitingStep = workflowStepsRef.current.find(s => s.id === currentWaitingId)
+            const eventAgentLower = agentName.toLowerCase()
+            const waitingAgentLower = waitingStep?.agentName.toLowerCase() || ''
+            const isFromWaitingAgent = waitingStep && (
+              waitingStep.agentName === agentName ||
+              waitingStep.agentId === agentName ||
+              eventAgentLower.includes('interview') && waitingAgentLower.includes('interview') ||
+              eventAgentLower.includes('branding') && waitingAgentLower.includes('branding')
+            )
+            if (isFromWaitingAgent) {
+              console.log("[WorkflowTest] 📋 Updating waiting message from agent_message:", content?.substring?.(0, 100))
+              setWaitingMessage(content)
+            } else {
+              console.log("[WorkflowTest] 🛡️ NOT updating waiting message - different agent:", agentName, "vs", waitingStep?.agentName)
+            }
           }
           return currentWaitingId
         })
@@ -1172,11 +1187,24 @@ export function VisualWorkflowDesigner({
         })
         stepStatusesRef.current = immediateUpdate
         
-        // If this step is currently waiting, also update the waiting message
+        // If this step is currently waiting, only update message if from same agent
         setWaitingStepId(currentWaitingId => {
           if (currentWaitingId === stepId && shouldUpdateMessage) {
-            console.log("[WorkflowTest] 📋 Updating waiting message from message event:", messageText?.substring?.(0, 100))
-            setWaitingMessage(messageText)
+            const waitingStep = workflowStepsRef.current.find(s => s.id === currentWaitingId)
+            const eventAgentLower = rawAgentName?.toLowerCase() || ''
+            const waitingAgentLower = waitingStep?.agentName.toLowerCase() || ''
+            const isFromWaitingAgent = waitingStep && (
+              waitingStep.agentName === rawAgentName ||
+              waitingStep.agentId === rawAgentName ||
+              eventAgentLower.includes('interview') && waitingAgentLower.includes('interview') ||
+              eventAgentLower.includes('branding') && waitingAgentLower.includes('branding')
+            )
+            if (isFromWaitingAgent) {
+              console.log("[WorkflowTest] 📋 Updating waiting message from message event:", messageText?.substring?.(0, 100))
+              setWaitingMessage(messageText)
+            } else {
+              console.log("[WorkflowTest] 🛡️ NOT updating waiting message from message - different agent:", rawAgentName, "vs", waitingStep?.agentName)
+            }
           }
           return currentWaitingId
         })
@@ -1247,11 +1275,24 @@ export function VisualWorkflowDesigner({
         })
         stepStatusesRef.current = immediateUpdate
         
-        // If this step is currently waiting, also update the waiting message
+        // If this step is currently waiting, only update message if from same agent
         setWaitingStepId(currentWaitingId => {
           if (currentWaitingId === stepId && shouldUpdateMessage) {
-            console.log("[WorkflowTest] 📋 Updating waiting message from remote_agent_activity:", fullContent?.substring?.(0, 100))
-            setWaitingMessage(fullContent)
+            const waitingStep = workflowStepsRef.current.find(s => s.id === currentWaitingId)
+            const eventAgentLower = data.agentName?.toLowerCase() || ''
+            const waitingAgentLower = waitingStep?.agentName.toLowerCase() || ''
+            const isFromWaitingAgent = waitingStep && (
+              waitingStep.agentName === data.agentName ||
+              waitingStep.agentId === data.agentName ||
+              eventAgentLower.includes('interview') && waitingAgentLower.includes('interview') ||
+              eventAgentLower.includes('branding') && waitingAgentLower.includes('branding')
+            )
+            if (isFromWaitingAgent) {
+              console.log("[WorkflowTest] 📋 Updating waiting message from remote_agent_activity:", fullContent?.substring?.(0, 100))
+              setWaitingMessage(fullContent)
+            } else {
+              console.log("[WorkflowTest] 🛡️ NOT updating waiting message from remote activity - different agent:", data.agentName, "vs", waitingStep?.agentName)
+            }
           }
           return currentWaitingId
         })
@@ -1289,25 +1330,41 @@ export function VisualWorkflowDesigner({
         const currentStatus = stepStatusesRef.current.get(stepId)
         if (currentStatus?.status === "waiting") {
           console.log("[WorkflowTest] 🛡️ PROTECTING waiting state in final_response - step is waiting for user input, NOT completing")
-          // Just update the message, don't change status
-          const immediateUpdate = new Map(stepStatusesRef.current)
-          immediateUpdate.set(stepId, { 
-            ...currentStatus,
-            message: fullContent  // Update message but keep waiting status
-          })
-          stepStatusesRef.current = immediateUpdate
           
-          // Also update the waiting message display
-          setWaitingMessage(fullContent)
+          // Only update message if it's from the same agent that's waiting
+          const waitingStep = workflowStepsRef.current.find(s => s.id === stepId)
+          const eventAgentLower = data.message.agent?.toLowerCase() || ''
+          const waitingAgentLower = waitingStep?.agentName.toLowerCase() || ''
+          const isFromWaitingAgent = waitingStep && (
+            waitingStep.agentName === data.message.agent ||
+            waitingStep.agentId === data.message.agent ||
+            (eventAgentLower.includes('interview') && waitingAgentLower.includes('interview')) ||
+            (eventAgentLower.includes('branding') && waitingAgentLower.includes('branding'))
+          )
           
-          setStepStatuses(prev => {
-            const newMap = new Map(prev)
-            const cs = prev.get(stepId)
-            if (cs) {
-              newMap.set(stepId, { ...cs, message: fullContent })
-            }
-            return newMap
-          })
+          if (isFromWaitingAgent) {
+            // Just update the message, don't change status
+            const immediateUpdate = new Map(stepStatusesRef.current)
+            immediateUpdate.set(stepId, { 
+              ...currentStatus,
+              message: fullContent  // Update message but keep waiting status
+            })
+            stepStatusesRef.current = immediateUpdate
+            
+            // Also update the waiting message display
+            setWaitingMessage(fullContent)
+            
+            setStepStatuses(prev => {
+              const newMap = new Map(prev)
+              const cs = prev.get(stepId)
+              if (cs) {
+                newMap.set(stepId, { ...cs, message: fullContent })
+              }
+              return newMap
+            })
+          } else {
+            console.log("[WorkflowTest] 🛡️ NOT updating waiting message in final_response - different agent:", data.message.agent, "vs", waitingStep?.agentName)
+          }
           return // Don't proceed with completion logic
         }
         
