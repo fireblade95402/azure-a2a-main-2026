@@ -647,7 +647,9 @@ export function VisualWorkflowDesigner({
             step.agentId === agentName ||
             (normalizedEventName.includes('interview') && normalizedStepName.includes('interview')) ||
             (normalizedEventName.includes('branding') && normalizedStepName.includes('branding')) ||
-            (normalizedEventName.includes('image') && normalizedStepName.includes('image'))
+            // Be specific for image agents - "image generator" vs "image analysis" are different!
+            (normalizedEventName.includes('image generator') && normalizedStepName.includes('image generator')) ||
+            (normalizedEventName.includes('image analysis') && normalizedStepName.includes('image analysis'))
         
         if (matches) {
           matchingSteps.push(step)
