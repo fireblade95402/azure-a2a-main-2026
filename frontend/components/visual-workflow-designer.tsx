@@ -641,15 +641,33 @@ export function VisualWorkflowDesigner({
         const normalizedStepName = step.agentName.toLowerCase().trim().replace(/[-_]/g, ' ')
         const normalizedStepId = step.agentId.toLowerCase().trim().replace(/[-_]/g, ' ')
         
-        const matches = normalizedStepName === normalizedEventName ||
+        // Exact matching first
+        let matches = normalizedStepName === normalizedEventName ||
             normalizedStepId === normalizedEventName ||
             step.agentName === agentName ||
-            step.agentId === agentName ||
-            (normalizedEventName.includes('interview') && normalizedStepName.includes('interview')) ||
-            (normalizedEventName.includes('branding') && normalizedStepName.includes('branding')) ||
-            // Be specific for image agents - "image generator" vs "image analysis" are different!
-            (normalizedEventName.includes('image generator') && normalizedStepName.includes('image generator')) ||
-            (normalizedEventName.includes('image analysis') && normalizedStepName.includes('image analysis'))
+            step.agentId === agentName
+        
+        // Generic fuzzy matching: extract "core" name by removing common prefixes/suffixes
+        // "AI Foundry Image Generator Agent" -> "image generator"
+        // "azurefoundry-image-generator" -> "image generator"
+        if (!matches) {
+          const extractCoreName = (name: string): string => {
+            return name.toLowerCase()
+              .replace(/ai foundry/gi, '')
+              .replace(/azure foundry/gi, '')
+              .replace(/azurefoundry/gi, '')
+              .replace(/foundry/gi, '')
+              .replace(/agent/gi, '')
+              .replace(/[-_]/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim()
+          }
+          const eventCore = extractCoreName(agentName)
+          const stepCore = extractCoreName(step.agentName)
+          
+          // Match if cores are equal (handles different naming conventions)
+          matches = eventCore === stepCore && eventCore.length > 0
+        }
         
         if (matches) {
           matchingSteps.push(step)
