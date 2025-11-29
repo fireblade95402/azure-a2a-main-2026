@@ -566,27 +566,43 @@ export function VisualWorkflowDesigner({
   useEffect(() => {
     console.log("[WorkflowTest] 🎬 Setting up event listeners on mount")
     
-    // SIMPLE sequential workflow: find the step for this agent, 
-    // but ONLY if all previous steps are completed
+    // SIMPLE sequential workflow:
+    // 1. If a step is waiting for input, ONLY that step can receive events
+    // 2. Otherwise, find matching step but only if previous steps are completed
     const findStepForAgent = (agentName: string): string | null => {
       if (!agentName) return null
       
       const normalizedEventName = agentName.toLowerCase().trim().replace(/[-_]/g, ' ')
       const sortedSteps = Array.from(workflowStepsRef.current).sort((a, b) => a.order - b.order)
       
-      // Helper: check if all steps before this one are completed
-      const canActivateStep = (targetStep: WorkflowStep): boolean => {
-        for (const step of sortedSteps) {
-          if (step.order >= targetStep.order) break // Reached target, all previous are done
-          const status = stepStatusesRef.current.get(step.id)
-          if (status?.status !== "completed") {
-            return false // Previous step not completed
+      // CRITICAL: If a step is waiting for input, ALL events go to that step
+      // This prevents step 2 from activating while step 1 has input_required
+      const waitingStep = waitingStepIdRef.current
+      if (waitingStep) {
+        const waitingStepData = workflowStepsRef.current.find(s => s.id === waitingStep)
+        if (waitingStepData) {
+          // Check if this event is for the waiting step
+          const waitingStepNameNorm = waitingStepData.agentName.toLowerCase().trim().replace(/[-_]/g, ' ')
+          const waitingStepIdNorm = waitingStepData.agentId.toLowerCase().trim().replace(/[-_]/g, ' ')
+          const isForWaitingStep = 
+            waitingStepNameNorm === normalizedEventName ||
+            waitingStepIdNorm === normalizedEventName ||
+            waitingStepData.agentName === agentName ||
+            waitingStepData.agentId === agentName ||
+            normalizedEventName.includes('host') ||
+            (normalizedEventName.includes('interview') && waitingStepNameNorm.includes('interview')) ||
+            (normalizedEventName.includes('branding') && waitingStepNameNorm.includes('branding'))
+          
+          if (isForWaitingStep) {
+            return waitingStep
+          } else {
+            console.log("[WorkflowTest] 🛑 Step", waitingStepData.agentName, "is waiting - blocking event for", agentName)
+            return null
           }
         }
-        return true
       }
       
-      // Find step that matches this agent
+      // No step waiting - find matching step but check sequential order
       for (const step of sortedSteps) {
         const normalizedStepName = step.agentName.toLowerCase().trim().replace(/[-_]/g, ' ')
         const normalizedStepId = step.agentId.toLowerCase().trim().replace(/[-_]/g, ' ')
@@ -599,8 +615,18 @@ export function VisualWorkflowDesigner({
             (normalizedEventName.includes('branding') && normalizedStepName.includes('branding'))
         
         if (matches) {
-          // Only route to this step if previous steps are completed
-          if (canActivateStep(step)) {
+          // Check all previous steps are completed
+          let canActivate = true
+          for (const prevStep of sortedSteps) {
+            if (prevStep.order >= step.order) break
+            const status = stepStatusesRef.current.get(prevStep.id)
+            if (status?.status !== "completed") {
+              canActivate = false
+              break
+            }
+          }
+          
+          if (canActivate) {
             return step.id
           } else {
             console.log("[WorkflowTest] 🛑 Blocking event for", agentName, "- previous steps not completed")
@@ -617,7 +643,6 @@ export function VisualWorkflowDesigner({
             return step.id
           }
         }
-        // All completed, use last
         if (sortedSteps.length > 0) {
           return sortedSteps[sortedSteps.length - 1].id
         }
