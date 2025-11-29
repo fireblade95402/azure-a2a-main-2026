@@ -171,6 +171,9 @@ class SessionContext(BaseModel):
     last_host_turn_text: Optional[str] = Field(default=None)
     last_host_turn_agent: Optional[str] = Field(default=None)
     host_turn_history: List[Dict[str, str]] = Field(default_factory=list)
+    # Human-in-the-loop tracking: which agent is waiting for user input
+    pending_input_agent: Optional[str] = Field(default=None, description="Agent name waiting for input_required response")
+    pending_input_task_id: Optional[str] = Field(default=None, description="Task ID of the pending input_required task")
 
 
 # Agent Mode Orchestration Models
@@ -1933,8 +1936,15 @@ Analyze the plan and determine the next step. If you need information that isn't
                     if state_obj is not None:
                         state_str = state_obj.value if hasattr(state_obj, 'value') else str(state_obj)
                         session_ctx.agent_task_states[agent_name] = state_str
-        except Exception as _:
+                        
+                        # HUMAN-IN-THE-LOOP: Track input_required state from remote agents
+                        if state_str == 'input_required' or state_str == 'input-required':
+                            session_ctx.pending_input_agent = agent_name
+                            session_ctx.pending_input_task_id = task_id_cb
+                            log_info(f"🔄 [HITL] Callback detected input_required from '{agent_name}', setting pending_input_agent (task_id: {task_id_cb})")
+        except Exception as e:
             # Non-fatal; continue normal processing
+            log_debug(f"[STREAMING] Error in task callback context tracking: {e}")
             pass
         
         # CONSOLIDATED: All events go through _emit_task_event as single emission point
@@ -3486,6 +3496,12 @@ Answer with just JSON:
                         tool_context.actions.skip_summarization = False
                         tool_context.actions.escalate = False
 
+                    # Clear any pending input_required state since this agent completed successfully
+                    if session_context.pending_input_agent == agent_name:
+                        log_info(f"🔄 [HITL] Clearing pending input state for completed agent '{agent_name}'")
+                        session_context.pending_input_agent = None
+                        session_context.pending_input_task_id = None
+
                     self._reset_retry_count(session_context)
                     
                     if self.enable_task_evaluation:
@@ -3646,6 +3662,11 @@ Original request: {message}"""
                     })
                     tool_context.actions.skip_summarization = True
                     tool_context.actions.escalate = True
+                    
+                    # Track which agent is waiting for input so we can route follow-up messages
+                    session_context.pending_input_agent = agent_name
+                    session_context.pending_input_task_id = task.id
+                    log_info(f"🔄 [HITL] Agent '{agent_name}' set to input_required, awaiting user response (task_id: {task.id})")
                     
                     # For input_required, provide the status message if available
                     if task.status.message:
@@ -4523,6 +4544,42 @@ Original request: {message}"""
             session_context.agent_mode = agent_mode
             session_context.enable_inter_agent_memory = enable_inter_agent_memory
             log_foundry_debug(f"Agent mode set to: {agent_mode}, Inter-agent memory: {enable_inter_agent_memory}")
+            
+            # HUMAN-IN-THE-LOOP: Check if an agent is waiting for input_required response
+            # If so, route this message directly to that agent instead of normal orchestration
+            if session_context.pending_input_agent:
+                pending_agent = session_context.pending_input_agent
+                pending_task_id = session_context.pending_input_task_id
+                log_info(f"🔄 [HITL] Found pending input_required agent: '{pending_agent}' (task_id: {pending_task_id})")
+                log_info(f"🔄 [HITL] Routing user response directly to waiting agent instead of orchestration")
+                
+                # Clear the pending state before routing
+                session_context.pending_input_agent = None
+                session_context.pending_input_task_id = None
+                
+                # Extract user message from parts
+                hitl_user_message = ""
+                for part in message_parts:
+                    if hasattr(part, 'root') and part.root.kind == 'text':
+                        hitl_user_message = part.root.text
+                        break
+                
+                # Route directly to the waiting agent
+                try:
+                    tool_context = DummyToolContext(session_context, self._azure_blob_client)
+                    hitl_response = await self.send_message(
+                        agent_name=pending_agent,
+                        message=hitl_user_message,
+                        tool_context=tool_context,
+                        suppress_streaming=False
+                    )
+                    log_info(f"🔄 [HITL] Response from agent '{pending_agent}': {str(hitl_response)[:200]}...")
+                    return hitl_response if isinstance(hitl_response, list) else [str(hitl_response)]
+                except Exception as e:
+                    log_error(f"🔄 [HITL] Error routing to pending agent '{pending_agent}': {e}")
+                    # Fall through to normal processing if routing fails
+                    import traceback
+                    traceback.print_exc()
             # Reset any cached parts from prior turns so we don't resend stale attachments
             if hasattr(session_context, "_latest_processed_parts"):
                 file_count_before = len(session_context._latest_processed_parts)

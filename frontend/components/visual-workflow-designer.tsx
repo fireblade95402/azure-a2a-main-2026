@@ -808,6 +808,7 @@ export function VisualWorkflowDesigner({
       const currentStatus = stepStatusesRef.current.get(stepId)
       const newStatus = state === "completed" ? "completed" : 
                        state === "failed" ? "failed" : 
+                       (state === "input_required" || state === "input-required") ? "waiting" :
                        currentStatus?.status === "completed" ? "completed" :
                        "working"
       const immediateUpdate = new Map(stepStatusesRef.current)
@@ -824,6 +825,7 @@ export function VisualWorkflowDesigner({
         // Don't downgrade from completed
         const newStatus = state === "completed" ? "completed" : 
                          state === "failed" ? "failed" : 
+                         (state === "input_required" || state === "input-required") ? "waiting" :
                          currentStatus?.status === "completed" ? "completed" :
                          "working"
         

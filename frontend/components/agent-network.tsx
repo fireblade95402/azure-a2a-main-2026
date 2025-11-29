@@ -199,6 +199,8 @@ export function AgentNetwork({ registeredAgents, isCollapsed, onToggle, agentMod
       mappedState = "submitted"
     } else if (stateStr === "working" || stateStr === "running" || stateStr === "in-progress" || stateStr === "in_progress") {
       mappedState = "working"
+    } else if (stateStr === "input_required" || stateStr === "input-required") {
+      mappedState = "input-required"
     }
     
     setAgentStatuses(prev => {
