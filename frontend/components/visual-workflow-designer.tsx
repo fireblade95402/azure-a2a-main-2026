@@ -134,6 +134,8 @@ export function VisualWorkflowDesigner({
   const [testMessages, setTestMessages] = useState<Array<{ role: string, content: string, agent?: string }>>([])
   const [stepStatuses, setStepStatuses] = useState<Map<string, { status: string, message?: string, imageUrl?: string, fileName?: string, completedAt?: number }>>(new Map())
   const stepStatusesRef = useRef<Map<string, { status: string, message?: string, imageUrl?: string, fileName?: string, completedAt?: number }>>(new Map())
+  const [waitingStepId, setWaitingStepId] = useState<string | null>(null)
+  const [waitingResponse, setWaitingResponse] = useState("")
   const workflowStepsMapRef = useRef<Map<string, WorkflowStep>>(new Map())
   const imageCache = useRef<Map<string, HTMLImageElement>>(new Map())
   const testTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -818,6 +820,15 @@ export function VisualWorkflowDesigner({
       })
       stepStatusesRef.current = immediateUpdate
       
+      // Track waiting step for input_required state
+      if (newStatus === "waiting") {
+        console.log("[WorkflowTest] ⏸️ Step waiting for input:", stepId, agentName)
+        setWaitingStepId(stepId)
+      } else if (newStatus === "completed" || newStatus === "working") {
+        // Clear waiting state when step progresses
+        setWaitingStepId(prev => prev === stepId ? null : prev)
+      }
+      
       setStepStatuses(prev => {
         const newMap = new Map(prev)
         const currentStatus = prev.get(stepId)
@@ -849,10 +860,13 @@ export function VisualWorkflowDesigner({
         const currentStatus = stepStatusesRef.current.get(stepId)
         // Only update message if new content is longer (more substantive) than existing
         const shouldUpdateMessage = !currentStatus?.message || content.length > currentStatus.message.length
+        // Preserve waiting/completed status - don't downgrade
+        const preservedStatus = currentStatus?.status === "completed" ? "completed" : 
+                               currentStatus?.status === "waiting" ? "waiting" : "working"
         const immediateUpdate = new Map(stepStatusesRef.current)
         immediateUpdate.set(stepId, { 
           ...currentStatus,
-          status: currentStatus?.status === "completed" ? "completed" : "working",
+          status: preservedStatus,
           message: shouldUpdateMessage ? content : currentStatus?.message
         })
         stepStatusesRef.current = immediateUpdate
@@ -861,9 +875,11 @@ export function VisualWorkflowDesigner({
           const newMap = new Map(prev)
           const currentStatus = prev.get(stepId)
           const shouldUpdate = !currentStatus?.message || content.length > currentStatus.message.length
+          const preservedStatus = currentStatus?.status === "completed" ? "completed" : 
+                                 currentStatus?.status === "waiting" ? "waiting" : "working"
           newMap.set(stepId, { 
             ...currentStatus,
-            status: currentStatus?.status === "completed" ? "completed" : "working",
+            status: preservedStatus,
             message: shouldUpdate ? content : currentStatus?.message
           })
           return newMap
@@ -882,10 +898,13 @@ export function VisualWorkflowDesigner({
         
         // CRITICAL FIX: Update ref immediately
         const currentStatus = stepStatusesRef.current.get(stepId)
+        // Preserve waiting/completed status
+        const preservedStatus = currentStatus?.status === "completed" ? "completed" : 
+                               currentStatus?.status === "waiting" ? "waiting" : "working"
         const immediateUpdate = new Map(stepStatusesRef.current)
         immediateUpdate.set(stepId, { 
           ...currentStatus,
-          status: currentStatus?.status === "completed" ? "completed" : "working",
+          status: preservedStatus,
           message 
         })
         stepStatusesRef.current = immediateUpdate
@@ -893,9 +912,11 @@ export function VisualWorkflowDesigner({
         setStepStatuses(prev => {
           const newMap = new Map(prev)
           const currentStatus = prev.get(stepId)
+          const preservedStatus = currentStatus?.status === "completed" ? "completed" : 
+                                 currentStatus?.status === "waiting" ? "waiting" : "working"
           newMap.set(stepId, { 
             ...currentStatus,
-            status: currentStatus?.status === "completed" ? "completed" : "working",
+            status: preservedStatus,
             message 
           })
           return newMap
@@ -916,10 +937,13 @@ export function VisualWorkflowDesigner({
         
         // CRITICAL FIX: Update ref immediately
         const currentStatus = stepStatusesRef.current.get(stepId)
+        // Preserve waiting/completed status
+        const preservedStatus = currentStatus?.status === "completed" ? "completed" : 
+                               currentStatus?.status === "waiting" ? "waiting" : "working"
         const immediateUpdate = new Map(stepStatusesRef.current)
         immediateUpdate.set(stepId, { 
           ...currentStatus,
-          status: currentStatus?.status === "completed" ? "completed" : "working",
+          status: preservedStatus,
           message 
         })
         stepStatusesRef.current = immediateUpdate
@@ -927,9 +951,11 @@ export function VisualWorkflowDesigner({
         setStepStatuses(prev => {
           const newMap = new Map(prev)
           const currentStatus = prev.get(stepId)
+          const preservedStatus = currentStatus?.status === "completed" ? "completed" : 
+                                 currentStatus?.status === "waiting" ? "waiting" : "working"
           newMap.set(stepId, { 
             ...currentStatus,
-            status: currentStatus?.status === "completed" ? "completed" : "working",
+            status: preservedStatus,
             message 
           })
           return newMap
@@ -946,10 +972,13 @@ export function VisualWorkflowDesigner({
         
         // CRITICAL FIX: Update ref immediately
         const currentStatus = stepStatusesRef.current.get(stepId)
+        // Preserve waiting/completed status
+        const preservedStatus = currentStatus?.status === "completed" ? "completed" : 
+                               currentStatus?.status === "waiting" ? "waiting" : "working"
         const immediateUpdate = new Map(stepStatusesRef.current)
         immediateUpdate.set(stepId, { 
           ...currentStatus,
-          status: currentStatus?.status === "completed" ? "completed" : "working",
+          status: preservedStatus,
           message: data.activity 
         })
         stepStatusesRef.current = immediateUpdate
@@ -957,9 +986,11 @@ export function VisualWorkflowDesigner({
         setStepStatuses(prev => {
           const newMap = new Map(prev)
           const currentStatus = prev.get(stepId)
+          const preservedStatus = currentStatus?.status === "completed" ? "completed" : 
+                                 currentStatus?.status === "waiting" ? "waiting" : "working"
           newMap.set(stepId, { 
             ...currentStatus,
-            status: currentStatus?.status === "completed" ? "completed" : "working",
+            status: preservedStatus,
             message: data.activity 
           })
           return newMap
@@ -1527,6 +1558,52 @@ export function VisualWorkflowDesigner({
     stepStatusesRef.current = new Map()
     activeStepPerAgentRef.current = new Map() // Clear active step assignments
     setHostMessage(null)
+    setWaitingStepId(null)
+    setWaitingResponse("")
+  }
+  
+  // Handle response submission when an agent is waiting for input
+  const handleWaitingResponse = async () => {
+    if (!waitingResponse.trim() || !waitingStepId || !workflowConversationId) return
+    
+    const waitingStep = workflowSteps.find(s => s.id === waitingStepId)
+    console.log("[WorkflowTest] 📨 Sending response to waiting agent:", waitingStep?.agentName)
+    
+    // Add user message to test messages
+    setTestMessages(prev => [...prev, { role: "user", content: waitingResponse }])
+    
+    // Clear the waiting response input
+    const responseToSend = waitingResponse
+    setWaitingResponse("")
+    
+    // Send the response via API
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_A2A_API_URL || 'http://localhost:12000'
+      
+      const parts: any[] = [
+        { root: { kind: 'text', text: responseToSend } }
+      ]
+      
+      await fetch(`${baseUrl}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: {
+            role: "user",
+            parts,
+            contextId: workflowConversationId,
+          },
+          agentMode: true,
+          enableInterAgentMemory: true,
+          workflow: generatedWorkflowText,
+          conversationId: workflowConversationId
+        })
+      })
+      
+      console.log("[WorkflowTest] ✅ Response sent successfully")
+    } catch (err) {
+      console.error("[WorkflowTest] ❌ Error sending response:", err)
+    }
   }
   
   // Cleanup timeout on unmount
@@ -1960,7 +2037,7 @@ export function VisualWorkflowDesigner({
           ctx.fillText("-", x, y)
         }
 
-        // Status indicator (working/completed) when testing
+        // Status indicator (working/completed/waiting) when testing
         if (isTesting) {
           const stepStatus = stepStatuses.get(step.id)
           if (stepStatus) {
@@ -1977,6 +2054,23 @@ export function VisualWorkflowDesigner({
               ctx.arc(statusX, statusY, 5, 0, Math.PI * 2)
               ctx.fill()
               ctx.shadowBlur = 0
+            } else if (stepStatus.status === "waiting") {
+              // Pulsing orange dot with question mark - waiting for user input
+              const pulse = Math.sin(Date.now() / 400) * 0.3 + 0.7
+              ctx.fillStyle = `rgba(249, 115, 22, ${pulse})`
+              ctx.shadowColor = "rgba(249, 115, 22, 0.7)"
+              ctx.shadowBlur = 10
+              ctx.beginPath()
+              ctx.arc(statusX, statusY, 8, 0, Math.PI * 2)
+              ctx.fill()
+              ctx.shadowBlur = 0
+              
+              // White question mark
+              ctx.fillStyle = "#ffffff"
+              ctx.font = "bold 10px system-ui"
+              ctx.textAlign = "center"
+              ctx.textBaseline = "middle"
+              ctx.fillText("?", statusX, statusY + 1)
             } else if (stepStatus.status === "completed") {
               // Green checkmark
               ctx.fillStyle = "#22c55e"
@@ -2999,6 +3093,62 @@ export function VisualWorkflowDesigner({
                   </Button>
                 )}
               </div>
+              
+              {/* Waiting for Input Panel - shows when an agent is waiting for user response */}
+              {waitingStepId && isTesting && (() => {
+                const waitingStep = workflowSteps.find(s => s.id === waitingStepId)
+                const waitingStatus = stepStatuses.get(waitingStepId)
+                return (
+                  <div className="mt-3 p-3 bg-orange-900/30 rounded-lg border border-orange-500/50">
+                    <div className="flex items-start gap-3">
+                      <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm"
+                           style={{ backgroundColor: waitingStep?.agentColor || '#f97316' }}>
+                        ?
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-orange-400 font-medium text-sm">
+                            {waitingStep?.agentName || "Agent"} is waiting for your response
+                          </span>
+                          <div className="h-2 w-2 bg-orange-500 rounded-full animate-pulse" />
+                        </div>
+                        
+                        {/* Show the agent's question/message */}
+                        {waitingStatus?.message && (
+                          <div className="mb-3 p-2 bg-slate-800/50 rounded text-sm text-slate-300 whitespace-pre-wrap max-h-32 overflow-y-auto">
+                            {waitingStatus.message}
+                          </div>
+                        )}
+                        
+                        {/* Response input */}
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={waitingResponse}
+                            onChange={(e) => setWaitingResponse(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault()
+                                handleWaitingResponse()
+                              }
+                            }}
+                            placeholder="Type your response..."
+                            className="flex-1 text-sm h-9 bg-slate-800/50 border-orange-500/30 focus:border-orange-500"
+                          />
+                          <Button
+                            onClick={handleWaitingResponse}
+                            disabled={!waitingResponse.trim()}
+                            size="sm"
+                            className="h-9 bg-orange-600 hover:bg-orange-700"
+                          >
+                            <Send className="h-3 w-3 mr-1" />
+                            Reply
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
           )}
           
