@@ -667,24 +667,10 @@ export function VisualWorkflowDesigner({
             continue
           }
           
-          // Check all previous steps are completed (sequential enforcement)
-          let canActivate = true
-          for (const prevStep of sortedSteps) {
-            if (prevStep.order >= step.order) break
-            const status = stepStatusesRef.current.get(prevStep.id)
-            if (status?.status !== "completed") {
-              canActivate = false
-              break
-            }
-          }
-          
-          if (canActivate) {
-            console.log("[WorkflowTest] ✅ Routing to step", step.order, step.agentName, "(first uncompleted match)")
-            return step.id
-          } else {
-            console.log("[WorkflowTest] 🛑 Step", step.order, step.agentName, "- previous steps not completed")
-            return null
-          }
+          // Route to first uncompleted matching step - no blocking!
+          // Backend handles orchestration, frontend just displays
+          console.log("[WorkflowTest] ✅ Routing to step", step.order, step.agentName, "(first uncompleted match)")
+          return step.id
         }
         
         // All matching steps completed - return the last one (for final events)
