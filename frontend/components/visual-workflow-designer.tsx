@@ -786,10 +786,16 @@ export function VisualWorkflowDesigner({
       
       // CRITICAL FIX: Update ref immediately to prevent race conditions with rapid events
       const currentStatus = stepStatusesRef.current.get(stepId)
-      // Preserve waiting/completed status - don't downgrade
+      
+      // PROTECT WAITING STATE: If step is waiting, ignore completed/working events
+      if (currentStatus?.status === "waiting") {
+        console.log("[WorkflowTest] 🛡️ PROTECTING waiting state in status_update - ignoring:", status?.substring(0, 50))
+        return
+      }
+      
+      // Preserve completed status - don't downgrade
       const newStatus = status?.includes("completed") ? "completed" : 
                        currentStatus?.status === "completed" ? "completed" :
-                       currentStatus?.status === "waiting" ? "waiting" : 
                        "working"
       
       // Determine if this status has actual content worth displaying
@@ -1276,8 +1282,33 @@ export function VisualWorkflowDesigner({
         const fullContent = data.message.content
         console.log("[WorkflowTest] ✨ Setting final response for", data.message.agent, "step:", stepId, ":", fullContent.substring(0, 100) + "...")
         
-        // CRITICAL FIX: Update ref immediately to mark as completed
+        // PROTECT WAITING STATE: If step is waiting for user input, DON'T mark as completed
         const currentStatus = stepStatusesRef.current.get(stepId)
+        if (currentStatus?.status === "waiting") {
+          console.log("[WorkflowTest] 🛡️ PROTECTING waiting state in final_response - step is waiting for user input, NOT completing")
+          // Just update the message, don't change status
+          const immediateUpdate = new Map(stepStatusesRef.current)
+          immediateUpdate.set(stepId, { 
+            ...currentStatus,
+            message: fullContent  // Update message but keep waiting status
+          })
+          stepStatusesRef.current = immediateUpdate
+          
+          // Also update the waiting message display
+          setWaitingMessage(fullContent)
+          
+          setStepStatuses(prev => {
+            const newMap = new Map(prev)
+            const cs = prev.get(stepId)
+            if (cs) {
+              newMap.set(stepId, { ...cs, message: fullContent })
+            }
+            return newMap
+          })
+          return // Don't proceed with completion logic
+        }
+        
+        // Step is NOT waiting - proceed with completion
         const immediateUpdate = new Map(stepStatusesRef.current)
         immediateUpdate.set(stepId, { 
           ...currentStatus,
