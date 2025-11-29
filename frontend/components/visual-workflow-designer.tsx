@@ -1613,32 +1613,40 @@ export function VisualWorkflowDesigner({
       return newMap
     })
     
-    // Send the response via API
+    // Send the response via API (same format as handleTestSubmit)
     try {
       const baseUrl = process.env.NEXT_PUBLIC_A2A_API_URL || 'http://localhost:12000'
+      const messageId = `reply_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
       
       const parts: any[] = [
         { root: { kind: 'text', text: responseToSend } }
       ]
       
-      const response = await fetch(`${baseUrl}/messages`, {
+      console.log('[WorkflowTest] Sending reply:', {
+        messageId,
+        contextId: workflowConversationId,
+        workflow: generatedWorkflowText?.substring(0, 100) + '...'
+      })
+      
+      const response = await fetch(`${baseUrl}/message/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: {
-            role: "user",
-            parts,
+          params: {
+            messageId,
             contextId: workflowConversationId,
-          },
-          agentMode: true,
-          enableInterAgentMemory: true,
-          workflow: generatedWorkflowText,
-          conversationId: workflowConversationId
+            parts: parts,
+            role: 'user',
+            agentMode: true,
+            enableInterAgentMemory: true,
+            workflow: generatedWorkflowText
+          }
         })
       })
       
       if (!response.ok) {
-        console.error("[WorkflowTest] ❌ API error:", response.status, response.statusText)
+        const errorText = await response.text()
+        console.error("[WorkflowTest] ❌ API error:", response.status, response.statusText, errorText)
       } else {
         console.log("[WorkflowTest] ✅ Response sent successfully")
       }
