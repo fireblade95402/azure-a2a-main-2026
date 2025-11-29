@@ -93,17 +93,17 @@ agent_executor_instance = None
 
 def _build_agent_skills() -> List[AgentSkill]:
     """
-    Interview Agent Skills
+    Interview Agent Skills - Lead Capture Focus
     
-    Defines the core capabilities of the lead qualification interview agent.
-    These skills appear in the agent catalog and help route appropriate queries.
+    This agent's primary purpose is to capture lead information (name, email, company, use case)
+    so that subsequent agents can generate reports and send follow-ups.
     """
     return [
         AgentSkill(
-            id='lead_qualification',
-            name='Lead Qualification Interview',
-            description="Conduct consultative interviews to understand customer AI and automation needs, gather comprehensive information about their business challenges, and qualify leads for AI consulting services",
-            tags=['interview', 'lead', 'qualification', 'discovery', 'consultation'],
+            id='lead_capture',
+            name='Lead Information Capture',
+            description="Capture essential lead information including name, email, company, and use case. Designed to efficiently gather contact details for follow-up with personalized reports.",
+            tags=['lead', 'capture', 'contact', 'email', 'qualification'],
             examples=[
                 'I want to learn more about AI solutions for my business',
                 'Can you help me understand what AI could do for my company?',
@@ -112,47 +112,25 @@ def _build_agent_skills() -> List[AgentSkill]:
             ],
         ),
         AgentSkill(
-            id='needs_assessment',
-            name='Business Needs Assessment',
-            description="Deep-dive into customer business challenges, pain points, and opportunities for AI implementation. Probes for technical context, scale, timeline, and success criteria",
-            tags=['assessment', 'discovery', 'requirements', 'business-analysis'],
+            id='use_case_discovery',
+            name='Use Case Discovery',
+            description="Quickly understand what the customer wants to accomplish with AI so we can provide relevant recommendations in a follow-up report.",
+            tags=['discovery', 'use-case', 'requirements', 'ai-needs'],
             examples=[
-                'What questions do you need to ask to understand my AI needs?',
-                'Help me articulate what I need from an AI solution',
-                'We have a problem but don\'t know if AI can help',
+                'I need help with customer service automation',
+                'We want to use AI for document processing',
+                'Looking to implement RAG for our knowledge base',
             ],
         ),
         AgentSkill(
-            id='technical_discovery',
-            name='Technical Environment Discovery',
-            description="Gather information about current technology stack, data infrastructure, team capabilities, and technical constraints to assess implementation feasibility",
-            tags=['technical', 'infrastructure', 'stack', 'capability-assessment'],
+            id='contact_collection',
+            name='Contact Information Collection',
+            description="Gather contact details (name, email) to send personalized AI consultation reports and recommendations.",
+            tags=['contact', 'email', 'follow-up', 'report'],
             examples=[
-                'What do you need to know about our technical setup?',
-                'We use Azure and have data in SQL databases',
-                'Our team has limited AI experience',
-            ],
-        ),
-        AgentSkill(
-            id='stakeholder_identification',
-            name='Stakeholder & Decision Process Mapping',
-            description="Identify key stakeholders, decision-makers, budget owners, and approval processes to ensure proper engagement and follow-up",
-            tags=['stakeholders', 'decision-makers', 'process', 'engagement'],
-            examples=[
-                'Who needs to be involved in evaluating AI solutions?',
-                'What\'s the approval process for this type of project?',
-                'I need to get buy-in from multiple departments',
-            ],
-        ),
-        AgentSkill(
-            id='next_steps',
-            name='Consultation Scheduling & Next Steps',
-            description="Summarize gathered information, suggest appropriate next steps, and coordinate follow-up consultations with AI specialists",
-            tags=['scheduling', 'follow-up', 'next-steps', 'consultation'],
-            examples=[
-                'What are the next steps after this conversation?',
-                'Can you schedule a consultation with an AI specialist?',
-                'I\'d like to move forward with exploring this',
+                'Sure, my email is...',
+                'You can reach me at...',
+                'Send the report to...',
             ],
         ),
     ]
@@ -170,7 +148,7 @@ def _create_agent_card(host: str, port: int) -> AgentCard:
     
     return AgentCard(
         name='AI Consulting Interview Agent',
-        description="An intelligent interview agent that conducts consultative discovery conversations to qualify leads for AI consulting services. Asks probing questions to understand business challenges, technical context, stakeholders, and implementation requirements. Designed to build rapport while systematically gathering the information needed to provide valuable recommendations.",
+        description="A lead capture agent that efficiently gathers contact information (name, email, company) and use case details from potential customers. Outputs structured lead data for downstream agents to generate personalized reports and send follow-up emails.",
         url=resolve_agent_url(resolved_host_for_url, port),
         version='1.0.0',
         defaultInputModes=['text'],

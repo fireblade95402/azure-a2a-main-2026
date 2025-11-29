@@ -867,6 +867,8 @@ export function ChatPanel({ dagNodes, dagLinks, agentMode, enableInterAgentMemor
             status = "request queued"
           } else if (data.state === "requires_action") {
             status = "executing tools"
+          } else if (data.state === "input_required" || data.state === "input-required") {
+            status = "waiting for your response"
           }
         }
         

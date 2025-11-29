@@ -252,6 +252,10 @@ class FoundryTemplateAgentExecutor(AgentExecutor):
         This is a key feature for interview agents - they can ask questions and wait
         for user responses before proceeding.
         
+        IMPORTANT: Check for completion signals FIRST to avoid infinite interview loops.
+        The agent should complete when it has gathered sufficient information and is
+        providing a summary or next steps.
+        
         Returns:
             bool: True if the agent is asking a question that requires user input
         """
@@ -260,6 +264,98 @@ class FoundryTemplateAgentExecutor(AgentExecutor):
         
         # Trim whitespace for analysis
         response_lower = response.lower().strip()
+        
+        # =====================================================================
+        # COMPLETION DETECTION - Check these FIRST to break the interview loop
+        # =====================================================================
+        
+        # Check for structured lead capture format (highest priority)
+        # This indicates the agent has captured all required lead info
+        lead_capture_indicators = [
+            '## lead captured',
+            '**contact information:**',
+            'i\'ve captured everything i need',
+            'i\'ve got everything i need',
+            'i have everything i need',
+            'send it to',  # "send it to [email]"
+            'send the report to',
+            'will send it to your email',
+        ]
+        
+        for indicator in lead_capture_indicators:
+            if indicator in response_lower:
+                logger.info(f"🏁 Lead capture complete: '{indicator}' - interview done")
+                return False  # Complete the task
+        
+        # Check if response contains email format (indicates contact was captured)
+        import re
+        if re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', response):
+            # Response mentions an email address - likely confirming contact info
+            if any(phrase in response_lower for phrase in ['send', 'report', 'reach you', 'contact']):
+                logger.info(f"🏁 Email captured with send intent - interview complete")
+                return False
+        
+        # Strong completion signals - these indicate the interview is DONE
+        completion_phrases = [
+            # Summary/wrap-up indicators
+            'based on what you\'ve told me',
+            'based on what you\'ve shared',
+            'based on our conversation',
+            'based on everything you\'ve shared',
+            'here\'s what i understood',
+            'here is what i understood',
+            'here\'s what i\'ve learned',
+            'here is what i\'ve learned',
+            
+            # Lead captured indicators
+            'i\'ll have our team prepare',
+            'our team will prepare',
+            'prepare a personalized report',
+            'personalized report with recommendations',
+            
+            # Qualified lead indicators
+            'i believe we can help',
+            'we can definitely help',
+            'this sounds like a great fit',
+            
+            # Next steps / handoff indicators
+            'our team will reach out',
+            'our specialist will contact',
+            'we\'ll be in touch',
+            'will send you',
+            'send you a report',
+            
+            # Thank you / closing indicators
+            'thank you for sharing',
+            'thanks for sharing',
+            'i appreciate you taking the time',
+            'i have everything i need',
+            'i\'ve captured everything',
+        ]
+        
+        for phrase in completion_phrases:
+            if phrase in response_lower:
+                logger.info(f"🏁 Completion signal detected: '{phrase}' - interview complete")
+                return False  # DON'T request more input, complete the task
+        
+        # Check for structured output sections which indicate wrap-up
+        summary_section_indicators = [
+            '## lead captured',
+            '## summary',
+            '## next steps',
+            '**here\'s what i understood:**',
+            '**contact information:**',
+            '**company:**',
+        ]
+        
+        for indicator in summary_section_indicators:
+            if indicator in response_lower:
+                logger.info(f"🏁 Summary section detected: '{indicator}' - interview complete")
+                return False
+        
+        # =====================================================================
+        # INPUT REQUEST DETECTION - Only check if no completion signals found
+        # =====================================================================
         
         # Strong indicators that we need input (question marks at end of sentences)
         if '?' in response:
@@ -275,7 +371,6 @@ class FoundryTemplateAgentExecutor(AgentExecutor):
         input_request_phrases = [
             'could you tell me',
             'can you tell me',
-            'would you like to',
             'can you share',
             'could you share',
             'please tell me',
@@ -299,19 +394,6 @@ class FoundryTemplateAgentExecutor(AgentExecutor):
         
         for phrase in input_request_phrases:
             if phrase in response_lower:
-                return True
-        
-        # Check for follow-up question indicators
-        follow_up_indicators = [
-            'next step',
-            'would like to schedule',
-            'would you prefer',
-            'which option',
-            'what would be most helpful',
-        ]
-        
-        for indicator in follow_up_indicators:
-            if indicator in response_lower:
                 return True
         
         return False

@@ -146,6 +146,57 @@ class FoundryHostManager(ApplicationManager):
                 taskId=task_id,
                 messageId=str(uuid.uuid4()),
             )
+        # Handle A2A Part object directly (e.g., from HITL flow)
+        elif hasattr(resp, 'root') and hasattr(resp.root, 'kind'):
+            root = resp.root
+            kind = root.kind
+            log_debug(f"Processing as A2A Part object with kind: {kind}")
+            if kind == 'text':
+                text_content = getattr(root, 'text', '')
+                log_debug(f"Part text: {text_content[:200]}...")
+                parts.append(Part(root=TextPart(text=text_content)))
+            elif kind == 'data':
+                data_content = getattr(root, 'data', {})
+                log_debug(f"Part data: {data_content}")
+                parts.append(Part(root=DataPart(data=data_content)))
+            elif kind == 'file':
+                log_debug(f"Part file: {getattr(root, 'file', None)}")
+                parts.append(Part(root=FilePart(file=getattr(root, 'file', None))))
+            else:
+                log_debug(f"Unknown Part kind: {kind}")
+                parts.append(Part(root=TextPart(text=str(root))))
+            return Message(
+                role='agent',
+                parts=parts,
+                contextId=context_id,
+                taskId=task_id,
+                messageId=str(uuid.uuid4()),
+            )
+        # Handle TextPart, DataPart, FilePart directly (unwrapped from Part)
+        elif hasattr(resp, 'kind'):
+            kind = resp.kind
+            log_debug(f"Processing as raw A2A type with kind: {kind}")
+            if kind == 'text':
+                text_content = getattr(resp, 'text', '')
+                log_debug(f"TextPart text: {text_content[:200]}...")
+                parts.append(Part(root=TextPart(text=text_content)))
+            elif kind == 'data':
+                data_content = getattr(resp, 'data', {})
+                log_debug(f"DataPart data: {data_content}")
+                parts.append(Part(root=DataPart(data=data_content)))
+            elif kind == 'file':
+                log_debug(f"FilePart file: {getattr(resp, 'file', None)}")
+                parts.append(Part(root=FilePart(file=getattr(resp, 'file', None))))
+            else:
+                log_debug(f"Unknown raw kind: {kind}")
+                parts.append(Part(root=TextPart(text=str(resp))))
+            return Message(
+                role='agent',
+                parts=parts,
+                contextId=context_id,
+                taskId=task_id,
+                messageId=str(uuid.uuid4()),
+            )
         # Handle Message object
         elif hasattr(resp, 'parts'):
             log_debug(f"Processing as Message object with {len(resp.parts) if resp.parts else 0} parts")
@@ -173,9 +224,19 @@ class FoundryHostManager(ApplicationManager):
                 taskId=task_id,
                 messageId=str(uuid.uuid4()),
             )
+        elif isinstance(resp, str):
+            # Plain string response
+            log_debug(f"Processing as plain string: {resp[:200]}...")
+            return Message(
+                role='agent',
+                parts=[Part(root=TextPart(text=resp))],
+                contextId=context_id,
+                taskId=task_id,
+                messageId=str(uuid.uuid4()),
+            )
         else:
-            # Fallback: treat as plain text
-            log_debug(f"Processing as plain text: {str(resp)[:200]}...")
+            # Fallback: treat as plain text but warn
+            log_debug(f"WARNING: Unknown response type {type(resp)}, stringifying: {str(resp)[:200]}...")
             return Message(
                 role='agent',
                 parts=[Part(root=TextPart(text=str(resp)))],
@@ -666,6 +727,18 @@ class FoundryHostManager(ApplicationManager):
                 state = TaskState.canceled
             elif "failed" in resp_lower or "error" in resp_lower:
                 state = TaskState.failed
+            
+            # HUMAN-IN-THE-LOOP: Check if a remote agent set input_required state
+            # This is tracked in the session context's pending_input_agent field
+            try:
+                session_ctx = self._host_agent.get_session_context(context_id)
+                if session_ctx and session_ctx.pending_input_agent:
+                    log_debug(f"🔄 [HITL] Detected pending_input_agent: {session_ctx.pending_input_agent}, overriding state to input_required")
+                    state = TaskState.input_required
+                    # Use the pending agent name for accurate status attribution
+                    status_agent_name = session_ctx.pending_input_agent
+            except Exception as e:
+                log_debug(f"Error checking pending_input_agent: {e}")
             task.status.state = state
             task.status.message = msg
             self.update_task(task)
