@@ -568,6 +568,36 @@ export function VisualWorkflowDesigner({
     const findStepForAgent = (agentName: string): string | null => {
       if (!agentName) return null
       
+      // CRITICAL: If ANY step is in "waiting" state, ALL events should go to that step ONLY
+      // This prevents the next agent from receiving events while the current one is waiting for input
+      for (const [stepId, status] of stepStatusesRef.current.entries()) {
+        if (status?.status === "waiting") {
+          const waitingStep = workflowStepsRef.current.find(s => s.id === stepId)
+          console.log("[WorkflowTest] 🚫 Workflow blocked - step", waitingStep?.agentName, "is waiting for input")
+          
+          // Only allow events for the waiting step's agent
+          const normalizedEventName = agentName.toLowerCase().trim().replace(/[-_]/g, ' ')
+          const normalizedStepName = waitingStep?.agentName.toLowerCase().trim().replace(/[-_]/g, ' ')
+          const normalizedStepId = waitingStep?.agentId.toLowerCase().trim().replace(/[-_]/g, ' ')
+          
+          if (normalizedStepName === normalizedEventName || 
+              normalizedStepId === normalizedEventName ||
+              waitingStep?.agentName === agentName ||
+              waitingStep?.agentId === agentName ||
+              agentName.toLowerCase().includes('host')) {
+            // This event is for the waiting agent (or host) - allow it
+            console.log("[WorkflowTest] ✅ Event for waiting agent:", agentName, "-> step:", stepId)
+            return stepId
+          } else {
+            // This event is for a different agent - BLOCK IT
+            console.log("[WorkflowTest] 🛑 BLOCKING event for", agentName, "- workflow paused at", waitingStep?.agentName)
+            return null
+          }
+        }
+      }
+      
+      // No step is waiting - proceed with normal routing
+      
       // Check if we already have an active step for this agent (sticky assignment)
       const existingActiveStep = activeStepPerAgentRef.current.get(agentName)
       if (existingActiveStep) {
@@ -834,34 +864,35 @@ export function VisualWorkflowDesigner({
       if (newStatus === "waiting") {
         console.log("[WorkflowTest] ⏸️ Step waiting for input:", stepId, agentName)
         console.log("[WorkflowTest] 📋 Task update data:", JSON.stringify(data, null, 2))
+        
+        // Always set waitingStepId (even if it's the same step asking another question)
         setWaitingStepId(stepId)
-        // Capture the message - check multiple sources (DON'T use state as fallback - it's just "input_required"):
-        // 1. data.content (from backend task_updated event)
-        // 2. currentStatus?.message (from previous agent_message event)
-        // 3. data.message (fallback)
+        
+        // Capture the message - check multiple sources
         const newCapturedMessage = data.content || currentStatus?.message || data.message || null
         console.log("[WorkflowTest] 📋 New captured message:", newCapturedMessage?.substring?.(0, 200) || newCapturedMessage)
         
-        // IMPORTANT: Only update waitingMessage if we have actual content
-        // Don't overwrite a good message with null or empty string
-        setWaitingMessage(prev => {
-          if (newCapturedMessage && newCapturedMessage.length > 0) {
-            return newCapturedMessage
-          }
-          // Keep previous message if new one is empty
-          console.log("[WorkflowTest] 📋 Keeping previous waiting message:", prev?.substring?.(0, 100))
-          return prev
-        })
-      } else if (newStatus === "completed" || newStatus === "working") {
-        // Clear waiting state when step progresses
+        // For NEW input_required, always try to update the message
+        // This handles follow-up questions from the same agent
+        if (newCapturedMessage && newCapturedMessage.length > 0) {
+          console.log("[WorkflowTest] 📋 Setting waiting message:", newCapturedMessage?.substring?.(0, 100))
+          setWaitingMessage(newCapturedMessage)
+        } else {
+          console.log("[WorkflowTest] ⚠️ No message content in input_required event - keeping existing or waiting for agent_message")
+        }
+      } else if (newStatus === "completed") {
+        // Only clear waiting state when step COMPLETES (not when working)
+        console.log("[WorkflowTest] ✅ Step completed:", stepId, agentName)
         setWaitingStepId(prev => {
           if (prev === stepId) {
-            setWaitingMessage(null) // Also clear the waiting message
+            console.log("[WorkflowTest] 🧹 Clearing waiting state for completed step")
+            setWaitingMessage(null)
             return null
           }
           return prev
         })
       }
+      // NOTE: Don't clear waiting state on "working" - the agent might just be processing before asking next question
       
       setStepStatuses(prev => {
         const newMap = new Map(prev)
@@ -1657,23 +1688,11 @@ export function VisualWorkflowDesigner({
     const responseToSend = waitingResponse
     setWaitingResponse("")
     
-    // Clear waiting state - the agent will process and either complete or ask again
-    const previousWaitingStepId = waitingStepId
-    setWaitingStepId(null)
-    setWaitingMessage(null)
-    
-    // Update step status back to working while waiting for response
-    setStepStatuses(prev => {
-      const newMap = new Map(prev)
-      const currentStatus = prev.get(previousWaitingStepId)
-      if (currentStatus) {
-        newMap.set(previousWaitingStepId, {
-          ...currentStatus,
-          status: "working"
-        })
-      }
-      return newMap
-    })
+    // DON'T clear waiting state here - let the backend's response determine what happens
+    // The backend will either:
+    // 1. Send another input_required with new question -> we update waitingMessage
+    // 2. Send completed/working -> handleTaskUpdate will clear waiting state
+    // This prevents race conditions and ensures we don't miss the next question
     
     // Send the response via API (same format as handleTestSubmit)
     try {
