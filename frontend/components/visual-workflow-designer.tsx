@@ -566,19 +566,16 @@ export function VisualWorkflowDesigner({
   useEffect(() => {
     console.log("[WorkflowTest] 🎬 Setting up event listeners on mount")
     
-    // SIMPLE: Find step for agent - EXACT match only
+    // SIMPLE: Find step for agent - EXACT match only, with instance tracking
     const findStepForAgent = (agentName: string): string | null => {
       if (!agentName) return null
       
       // IGNORE host agent events - they have wrong names and mess up routing
       if (agentName.toLowerCase().includes('host')) {
-        console.log("[WorkflowTest] 🚫 Ignoring host agent event:", agentName)
         return null
       }
       
       const sortedSteps = Array.from(workflowStepsRef.current).sort((a, b) => a.order - b.order)
-      console.log("[WorkflowTest] 🔍 Looking for agent:", agentName)
-      console.log("[WorkflowTest] 📊 Steps:", sortedSteps.map(s => ({ order: s.order, name: s.agentName, status: stepStatusesRef.current.get(s.id)?.status })))
       
       // If a step is waiting for input, route to it (for HITL)
       const waitingStep = waitingStepIdRef.current
@@ -589,28 +586,44 @@ export function VisualWorkflowDesigner({
         }
       }
       
+      // CHECK: Does this agent already have an active step?
+      // This prevents late events from step 1 going to step 4 when same agent is used twice
+      const activeStepId = activeStepPerAgentRef.current.get(agentName)
+      if (activeStepId) {
+        const activeStatus = stepStatusesRef.current.get(activeStepId)
+        if (activeStatus?.status !== "completed") {
+          // Active step is still working - route to it
+          console.log("[WorkflowTest] 🔒 Using active step for", agentName, "-> step", 
+            workflowStepsRef.current.find(s => s.id === activeStepId)?.order)
+          return activeStepId
+        } else {
+          // Active step completed - clear it so we can find the next one
+          console.log("[WorkflowTest] 🔓 Clearing completed active step for", agentName)
+          activeStepPerAgentRef.current.delete(agentName)
+        }
+      }
+      
       // Find matching steps by EXACT name match
       const matchingSteps = sortedSteps.filter(step => 
         step.agentName === agentName || step.agentId === agentName
       )
-      console.log("[WorkflowTest] 🎯 Matching steps:", matchingSteps.length)
       
       // Route to first uncompleted matching step
       for (const step of matchingSteps) {
         const status = stepStatusesRef.current.get(step.id)
         if (status?.status !== "completed") {
-          console.log("[WorkflowTest] ✅ Routing to step", step.order, step.agentName)
+          // Mark this step as active for this agent
+          activeStepPerAgentRef.current.set(agentName, step.id)
+          console.log("[WorkflowTest] ✅ Assigned step", step.order, "as active for", agentName)
           return step.id
         }
       }
       
-      // All completed? Return last one
+      // All completed? Return last one (but don't mark as active)
       if (matchingSteps.length > 0) {
-        console.log("[WorkflowTest] ⚠️ All matching steps completed, using last:", matchingSteps[matchingSteps.length - 1].agentName)
         return matchingSteps[matchingSteps.length - 1].id
       }
       
-      console.log("[WorkflowTest] ❌ No matching step found for:", agentName)
       return null
     }
     
