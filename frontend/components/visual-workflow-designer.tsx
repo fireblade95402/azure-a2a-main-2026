@@ -566,22 +566,23 @@ export function VisualWorkflowDesigner({
   useEffect(() => {
     console.log("[WorkflowTest] 🎬 Setting up event listeners on mount")
     
-    // SIMPLE: Find step for agent - EXACT match only, no fuzzy nonsense
+    // SIMPLE: Find step for agent - EXACT match only
     const findStepForAgent = (agentName: string): string | null => {
       if (!agentName) return null
       
+      // IGNORE host agent events - they have wrong names and mess up routing
+      if (agentName.toLowerCase().includes('host')) {
+        return null
+      }
+      
       const sortedSteps = Array.from(workflowStepsRef.current).sort((a, b) => a.order - b.order)
-      const isHostAgent = agentName.toLowerCase().includes('host')
       
       // If a step is waiting for input, route to it (for HITL)
       const waitingStep = waitingStepIdRef.current
       if (waitingStep) {
         const waitingStepData = workflowStepsRef.current.find(s => s.id === waitingStep)
-        if (waitingStepData) {
-          // Only route to waiting step if it's from same agent or host
-          if (waitingStepData.agentName === agentName || isHostAgent) {
-            return waitingStep
-          }
+        if (waitingStepData && waitingStepData.agentName === agentName) {
+          return waitingStep
         }
       }
       
@@ -604,18 +605,6 @@ export function VisualWorkflowDesigner({
         return matchingSteps[matchingSteps.length - 1].id
       }
       
-      // Host agent fallback: route to first uncompleted step
-      if (isHostAgent) {
-        for (const step of sortedSteps) {
-          const status = stepStatusesRef.current.get(step.id)
-          if (status?.status !== "completed") {
-            console.log("[WorkflowTest] 🔄 Host -> step", step.order, step.agentName)
-            return step.id
-          }
-        }
-      }
-      
-      console.log("[WorkflowTest] ⚠️ No match for agent:", agentName)
       return null
     }
     
