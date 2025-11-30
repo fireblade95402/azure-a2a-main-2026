@@ -570,7 +570,7 @@ export function VisualWorkflowDesigner({
   useEffect(() => {
     console.log("[WorkflowTest] 🎬 Setting up event listeners on mount")
     
-    // Find step by: 1) taskId mapping, 2) agent name + first uncompleted
+    // Find step by: 1) taskId mapping, 2) agent name + step position
     const findStepForAgent = (agentName: string, taskId?: string): string | null => {
       if (!agentName) return null
       
@@ -578,27 +578,43 @@ export function VisualWorkflowDesigner({
       const lower = agentName.toLowerCase()
       if (lower.includes('host') || lower.includes('orchestrator')) return null
       
-      // 1) TaskId mapping (most precise)
+      // 1) TaskId mapping
       if (taskId && taskIdToStepRef.current.has(taskId)) {
-        return taskIdToStepRef.current.get(taskId)!
+        const stepId = taskIdToStepRef.current.get(taskId)!
+        console.log(`[Route] taskId ${taskId?.slice(0,8)} → cached step`)
+        return stepId
       }
       
       const sortedSteps = Array.from(workflowStepsRef.current).sort((a, b) => a.order - b.order)
       
-      // 2) Find first uncompleted step that matches this agent name
+      // Log what we're looking for
+      console.log(`[Route] Looking for "${agentName}" in steps:`, sortedSteps.map(s => ({
+        order: s.order,
+        name: s.agentName,
+        status: stepStatusesRef.current.get(s.id)?.status || 'none'
+      })))
+      
+      // 2) Find first uncompleted step matching agent name
       for (const step of sortedSteps) {
         if (step.agentName !== agentName && step.agentId !== agentName) continue
         
         const status = stepStatusesRef.current.get(step.id)
         if (status?.status !== "completed") {
           if (taskId) taskIdToStepRef.current.set(taskId, step.id)
+          console.log(`[Route] → Step ${step.order} (${step.agentName})`)
           return step.id
         }
       }
       
-      // 3) All matching steps completed - return last one
+      // 3) All matching completed - return last
       const matching = sortedSteps.filter(s => s.agentName === agentName || s.agentId === agentName)
-      return matching.length > 0 ? matching[matching.length - 1].id : null
+      if (matching.length > 0) {
+        console.log(`[Route] All completed, using last: Step ${matching[matching.length-1].order}`)
+        return matching[matching.length - 1].id
+      }
+      
+      console.log(`[Route] No match found for "${agentName}"`)
+      return null
     }
     
     // SIMPLE: status_update just updates status. Let handleTaskUpdate handle state changes.
