@@ -2089,7 +2089,7 @@ export function VisualWorkflowDesigner({
             // Show a "+" button to expand messages
             const buttonSize = 32
             const buttonX = x - buttonSize / 2
-            const buttonY = y - 70
+            const buttonY = y - 55
               
               ctx.save()
               
@@ -2417,7 +2417,7 @@ export function VisualWorkflowDesigner({
             // Check for expand button click
             const buttonSize = 32
             const buttonX = step.x - buttonSize / 2
-            const buttonY = step.y - 70
+            const buttonY = step.y - 55
             
             if (canvasX >= buttonX && canvasX <= buttonX + buttonSize &&
                 canvasY >= buttonY && canvasY <= buttonY + buttonSize) {
