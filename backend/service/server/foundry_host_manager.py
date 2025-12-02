@@ -636,6 +636,11 @@ class FoundryHostManager(ApplicationManager):
                             if isinstance(root, TextPart):
                                 text_parts.append(root.text)
                             elif isinstance(root, DataPart) and isinstance(root.data, dict):
+                                # Skip token_usage DataParts - they're for Visual Designer only, not main chat
+                                if root.data.get("type") == "token_usage":
+                                    log_debug(f"Skipping token_usage DataPart (not for main chat display)")
+                                    continue
+                                    
                                 artifact_uri = root.data.get("artifact-uri")
                                 log_debug(f"Found DataPart with dict, has artifact-uri: {bool(artifact_uri)}")
                                 if artifact_uri:
