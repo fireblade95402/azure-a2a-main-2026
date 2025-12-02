@@ -135,12 +135,14 @@ export function VisualWorkflowDesigner({
   const [stepStatuses, setStepStatuses] = useState<Map<string, { 
     status: string, 
     messages: Array<{ text?: string, imageUrl?: string, fileName?: string, timestamp: number }>,
-    completedAt?: number 
+    completedAt?: number,
+    messagesCollapsed?: boolean
   }>>(new Map())
   const stepStatusesRef = useRef<Map<string, { 
     status: string, 
     messages: Array<{ text?: string, imageUrl?: string, fileName?: string, timestamp: number }>,
-    completedAt?: number 
+    completedAt?: number,
+    messagesCollapsed?: boolean
   }>>(new Map())
   const [waitingStepId, setWaitingStepId] = useState<string | null>(null)
   const waitingStepIdRef = useRef<string | null>(null)
@@ -160,6 +162,23 @@ export function VisualWorkflowDesigner({
   const [hostMessages, setHostMessages] = useState<Array<{ message: string, target: string, timestamp: number }>>([])
   const orchestrationSidebarRef = useRef<HTMLDivElement>(null)
   const [showOrchestrationSidebar, setShowOrchestrationSidebar] = useState(true)
+  
+  // Toggle message visibility for a step
+  const toggleStepMessages = (stepId: string) => {
+    const current = stepStatusesRef.current.get(stepId)
+    if (!current) return
+    
+    const newEntry = {
+      ...current,
+      messagesCollapsed: !current.messagesCollapsed
+    }
+    stepStatusesRef.current.set(stepId, newEntry)
+    setStepStatuses(prev => {
+      const newMap = new Map(prev)
+      newMap.set(stepId, newEntry)
+      return newMap
+    })
+  }
   
   // Event Hub for live updates
   const { subscribe, unsubscribe, emit } = useEventHub()
@@ -604,7 +623,7 @@ export function VisualWorkflowDesigner({
       const matching = steps.filter(s => s.agentName === agentName || s.agentId === agentName)
       return matching.length > 0 ? matching[matching.length - 1].id : null
     }
-    
+
     // Helper to update step status and add a new message bubble
     const updateStep = (stepId: string, status: string, newMessage?: string, imageUrl?: string, fileName?: string) => {
       const current = stepStatusesRef.current.get(stepId)
@@ -620,10 +639,14 @@ export function VisualWorkflowDesigner({
         })
       }
       
+      // Auto-collapse messages when agent completes
+      const shouldCollapse = status === "completed" && messages.length > 0
+      
       const newEntry = { 
         status, 
         messages,
-        completedAt: status === "completed" ? Date.now() : current?.completedAt
+        completedAt: status === "completed" ? Date.now() : current?.completedAt,
+        messagesCollapsed: shouldCollapse ? true : current?.messagesCollapsed
       }
       stepStatusesRef.current.set(stepId, newEntry)
       setStepStatuses(prev => {
@@ -1963,18 +1986,62 @@ export function VisualWorkflowDesigner({
           const stepStatus = stepStatuses.get(step.id)
           if (stepStatus && stepStatus.messages && stepStatus.messages.length > 0) {
             const messageMaxWidth = 250
-            const now = Date.now()
-            const MESSAGE_DISPLAY_TIME = 3000 // 3 seconds
             
-            // Filter messages to only show recent ones (within 3 seconds)
-            const recentMessages = stepStatus.messages.filter(msg => now - msg.timestamp < MESSAGE_DISPLAY_TIME)
-            
-            if (recentMessages.length > 0) {
+            // Check if messages are collapsed
+            if (stepStatus.messagesCollapsed) {
+              // Show a "+" button to expand messages
+              const buttonSize = 32
+              const buttonX = x - buttonSize / 2
+              const buttonY = y - 120
+              
+              ctx.save()
+              
+              // Draw button background
+              ctx.fillStyle = "rgba(30, 41, 59, 0.95)"
+              ctx.strokeStyle = step.agentColor
+              ctx.lineWidth = 2
+              ctx.shadowColor = "rgba(0, 0, 0, 0.3)"
+              ctx.shadowBlur = 4
+              
+              ctx.beginPath()
+              ctx.roundRect(buttonX, buttonY, buttonSize, buttonSize, 6)
+              ctx.fill()
+              ctx.stroke()
+              ctx.shadowBlur = 0
+              
+              // Draw "+" icon
+              ctx.strokeStyle = step.agentColor
+              ctx.lineWidth = 2
+              ctx.lineCap = "round"
+              
+              const centerX = buttonX + buttonSize / 2
+              const centerY = buttonY + buttonSize / 2
+              const iconSize = 12
+              
+              ctx.beginPath()
+              ctx.moveTo(centerX - iconSize / 2, centerY)
+              ctx.lineTo(centerX + iconSize / 2, centerY)
+              ctx.stroke()
+              
+              ctx.beginPath()
+              ctx.moveTo(centerX, centerY - iconSize / 2)
+              ctx.lineTo(centerX, centerY + iconSize / 2)
+              ctx.stroke()
+              
+              // Message count badge
+              ctx.fillStyle = step.agentColor
+              ctx.font = "bold 10px system-ui"
+              ctx.textAlign = "center"
+              ctx.fillText(`${stepStatus.messages.length}`, centerX, buttonY - 8)
+              
+              ctx.restore()
+            } else {
+              // Show all messages stacked
               let currentY = y - 120 // Start position above agent
               
               // Display each message as a separate bubble, stacking upward
-              for (let msgIndex = recentMessages.length - 1; msgIndex >= 0; msgIndex--) {
-                const msg = recentMessages[msgIndex]
+              for (let msgIndex = stepStatus.messages.length - 1; msgIndex >= 0; msgIndex--) {
+                const msg = stepStatus.messages[msgIndex]
                 
                 // Handle image messages
                 if (msg.imageUrl) {
@@ -2205,6 +2272,23 @@ export function VisualWorkflowDesigner({
       // Convert to canvas coordinates
       const canvasX = (mouseX - centerX - panOffsetRef.current.x) / zoomRef.current
       const canvasY = (mouseY - centerY - panOffsetRef.current.y) / zoomRef.current
+      
+      // Check if clicking on message expand/collapse button (highest priority)
+      for (const step of workflowStepsRef.current) {
+        const stepStatus = stepStatusesRef.current.get(step.id)
+        if (stepStatus && stepStatus.messages && stepStatus.messages.length > 0 && stepStatus.messagesCollapsed) {
+          const buttonSize = 32
+          const buttonX = step.x - buttonSize / 2
+          const buttonY = step.y - 120
+          
+          if (canvasX >= buttonX && canvasX <= buttonX + buttonSize &&
+              canvasY >= buttonY && canvasY <= buttonY + buttonSize) {
+            // Clicked on the expand button
+            toggleStepMessages(step.id)
+            return
+          }
+        }
+      }
       
       // First, check if clicking on an agent to determine what step is under cursor
       const clickedStep = workflowStepsRef.current.find(step => {
