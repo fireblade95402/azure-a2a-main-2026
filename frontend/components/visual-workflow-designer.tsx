@@ -393,23 +393,19 @@ export function VisualWorkflowDesigner({
     })
     
     if (allStepsCompleted) {
-      console.log("[WorkflowTest] 🎉 All steps completed! Auto-stopping workflow in 2 seconds...")
+      console.log("[WorkflowTest] 🎉 All steps completed!")
       
       // NOTE: Don't update URL here - the chat panel is already showing everything live
       // URL updates cause the chat panel to reload, which creates a jarring "refresh" effect
       // The conversation is already saved on the backend and the chat panel has the live data
       
-      // Auto-stop after 2 seconds to let user see the completion
+      // Mark workflow as no longer testing, but KEEP the visual data (statuses, messages, tokens, duration)
+      // so the user can see the completed workflow results. Data is only cleared when starting a new test.
       const timeoutId = setTimeout(() => {
-        console.log("[WorkflowTest] ✅ Auto-stopping workflow")
+        console.log("[WorkflowTest] ✅ Workflow complete - keeping visual data for review")
         setIsTesting(false)
-        setTestMessages([])
-        setStepStatuses(new Map())
-        stepStatusesRef.current = new Map()
-        activeStepPerAgentRef.current = new Map()
-        taskIdToStepRef.current = new Map()
-        assignedStepsRef.current = new Set()
-        setHostMessages([])
+        // Don't clear stepStatuses, hostMessages, etc. - keep them visible!
+        // They will be cleared when the user starts a new test
       }, 2000)
       
       return () => clearTimeout(timeoutId)
