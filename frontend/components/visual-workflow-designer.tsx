@@ -595,9 +595,21 @@ export function VisualWorkflowDesigner({
       return matching.length > 0 ? matching[matching.length - 1].id : null
     }
     
-    // Helper to update step status and message
-    const updateStep = (stepId: string, status: string, message?: string) => {
-      const newEntry = { status, message }
+    // Helper to update step status and message - ALWAYS append messages
+    const updateStep = (stepId: string, status: string, newMessage?: string) => {
+      const current = stepStatusesRef.current.get(stepId)
+      // Append new messages instead of replacing
+      const message = current?.message && newMessage 
+        ? `${current.message}\n\n${newMessage}` 
+        : newMessage || current?.message
+      
+      const newEntry = { 
+        status, 
+        message,
+        imageUrl: current?.imageUrl,
+        fileName: current?.fileName,
+        completedAt: status === "completed" ? Date.now() : current?.completedAt
+      }
       stepStatusesRef.current.set(stepId, newEntry)
       setStepStatuses(prev => {
         const newMap = new Map(prev)
@@ -630,14 +642,20 @@ export function VisualWorkflowDesigner({
       const stepId = findStepForAgent(agentName)
       if (!stepId) return
       
-      // Map state to UI status
+      // Map state to status
       const newStatus = state === "completed" ? "completed" : 
                        state === "failed" ? "failed" : 
                        (state === "input_required" || state === "input-required") ? "waiting" :
                        "working"
       
       const messageContent = content || message
-      updateStep(stepId, newStatus, messageContent)
+      if (messageContent) {
+        updateStep(stepId, newStatus, messageContent)
+      } else {
+        // Just update status if no message
+        const current = stepStatusesRef.current.get(stepId)
+        updateStep(stepId, newStatus, current?.message)
+      }
       
       // Handle waiting state
       if (newStatus === "waiting") {
@@ -648,7 +666,7 @@ export function VisualWorkflowDesigner({
       }
     }
     
-    // Agent messages - just update the message content
+    // Agent messages
     const handleAgentMessage = (data: any) => {
       const { agentName, content } = data
       if (!agentName || !content) return
@@ -707,16 +725,39 @@ export function VisualWorkflowDesigner({
       updateStep(stepId, preservedStatus, activity)
     }
     
-    // Message events - extract content and update step
+    // Message events - extract content and update step (matches main chat behavior)
     const handleMessage = (data: any) => {
       const agentName = data.agentName || data.agent || data.from
       if (!agentName) return
       
-      // Extract message text from various formats
+      // Extract message text and images from content array
       let messageText = ""
       if (data.content && Array.isArray(data.content)) {
         const textItem = data.content.find((c: any) => c.type === "text")
         messageText = textItem?.content || textItem?.text || ""
+        
+        // Extract images from content array (same as main chat)
+        const imageContents = data.content.filter((c: any) => c.type === "image")
+        if (imageContents.length > 0) {
+          const stepId = findStepForAgent(agentName)
+          if (stepId) {
+            imageContents.forEach((img: any) => {
+              const current = stepStatusesRef.current.get(stepId)
+              const newEntry = {
+                ...current,
+                status: current?.status || "working",
+                imageUrl: img.uri,
+                fileName: img.fileName || "image"
+              }
+              stepStatusesRef.current.set(stepId, newEntry)
+              setStepStatuses(prev => {
+                const newMap = new Map(prev)
+                newMap.set(stepId, newEntry)
+                return newMap
+              })
+            })
+          }
+        }
       } else if (typeof data.message === "string") {
         messageText = data.message
       } else if (typeof data.content === "string") {
@@ -729,15 +770,10 @@ export function VisualWorkflowDesigner({
       if (!stepId) return
       
       const current = stepStatusesRef.current.get(stepId)
-      // Only update if new message is longer (more content)
-      if (!current?.message || messageText.length > current.message.length) {
-        const preservedStatus = (current?.status === "completed" || current?.status === "waiting") 
-          ? current.status : "working"
-        updateStep(stepId, preservedStatus, messageText)
-        
-        if (waitingStepIdRef.current === stepId) {
-          setWaitingMessage(messageText)
-        }
+      updateStep(stepId, current?.status || "working", messageText)
+      
+      if (waitingStepIdRef.current === stepId) {
+        setWaitingMessage(messageText)
       }
       
       setTestMessages(prev => [...prev, { role: "assistant", content: messageText, agent: agentName }])
@@ -886,7 +922,7 @@ export function VisualWorkflowDesigner({
     subscribe("agent_activity", handleAgentActivity)
     subscribe("remote_agent_activity", handleRemoteAgentActivity)
     subscribe("inference_step", handleInferenceStep)
-    subscribe("file", handleFileUploaded)
+    subscribe("file_uploaded", handleFileUploaded)
     subscribe("outgoing_agent_message", handleOutgoingMessage)
     
     return () => {
@@ -900,7 +936,7 @@ export function VisualWorkflowDesigner({
       unsubscribe("agent_activity", handleAgentActivity)
       unsubscribe("remote_agent_activity", handleRemoteAgentActivity)
       unsubscribe("inference_step", handleInferenceStep)
-      unsubscribe("file", handleFileUploaded)
+      unsubscribe("file_uploaded", handleFileUploaded)
       unsubscribe("outgoing_agent_message", handleOutgoingMessage)
     }
     // FIXED: Subscribe on mount, not when isTesting changes
@@ -1659,10 +1695,9 @@ export function VisualWorkflowDesigner({
           ctx.fillText("-", x, y)
         }
 
-        // Status indicator (working/completed/waiting) when testing
-        if (isTesting) {
-          const stepStatus = stepStatuses.get(step.id)
-          if (stepStatus) {
+        // Status indicator (working/completed/waiting) - show whenever we have status data
+        const stepStatus = stepStatuses.get(step.id)
+        if (stepStatus) {
             const statusX = x - 28
             const statusY = y - 28
             
@@ -1714,7 +1749,6 @@ export function VisualWorkflowDesigner({
               ctx.lineTo(statusX + 3, statusY - 2)
               ctx.stroke()
             }
-          }
         }
         
         // Delete button (top center, floating above hexagon) - only show on selected agent
@@ -1889,22 +1923,16 @@ export function VisualWorkflowDesigner({
           ctx.fillText("(press Enter to save, Esc to cancel)", x, y + descYOffset + totalHeight + 8)
         }
         
-        // Display agent status and messages during testing (above the agent)
-        if (isTesting) {
-          // Use step ID to get the correct status (handles duplicate agents)
+        // Display agent status and messages (above the agent)
+        // Use step ID to get the correct status (handles duplicate agents)
+        {
           const stepStatus = stepStatuses.get(step.id)
-          
           if (stepStatus) {
             const messageMaxWidth = 250
             
             // Current response display (above the agent)
-            // Show message for 4 seconds after completion, then disappear
-            const shouldShowMessage = stepStatus.message && (
-              stepStatus.status !== "completed" || 
-              (stepStatus.completedAt && Date.now() - stepStatus.completedAt < 4000)
-            )
-            
-            if (shouldShowMessage && stepStatus.message) {
+            // Always show messages if they exist
+            if (stepStatus.message) {
               ctx.save()
               
               ctx.font = "12px system-ui"
