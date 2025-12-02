@@ -157,7 +157,7 @@ export function VisualWorkflowDesigner({
   const taskIdToStepRef = useRef<Map<string, string>>(new Map())
   // Track which steps have been assigned (separate from status which can be corrupted by out-of-order events)
   const assignedStepsRef = useRef<Set<string>>(new Set())
-  const [hostMessage, setHostMessage] = useState<{ message: string, target: string } | null>(null)
+  const [hostMessages, setHostMessages] = useState<Array<{ message: string, target: string, timestamp: number }>>([])
   
   // Event Hub for live updates
   const { subscribe, unsubscribe, emit } = useEventHub()
@@ -382,7 +382,7 @@ export function VisualWorkflowDesigner({
         activeStepPerAgentRef.current = new Map()
         taskIdToStepRef.current = new Map()
         assignedStepsRef.current = new Set()
-        setHostMessage(null)
+        setHostMessages([])
       }, 2000)
       
       return () => clearTimeout(timeoutId)
@@ -763,22 +763,13 @@ export function VisualWorkflowDesigner({
       
       // Check if this is a foundry-host-agent orchestration message
       if (agentName.toLowerCase().includes('host') || agentName.toLowerCase().includes('foundry-host-agent')) {
-        // Display in bottom right corner
+        // Display in bottom right corner - add to stack
         if (messageText) {
-          setHostMessage({
+          setHostMessages(prev => [...prev, {
             message: messageText,
-            target: "Orchestrator"
-          })
-          
-          // Clear after 3 seconds (same as bubbles)
-          setTimeout(() => {
-            setHostMessage(prev => {
-              if (prev?.message === messageText) {
-                return null
-              }
-              return prev
-            })
-          }, 3000)
+            target: "Orchestrator",
+            timestamp: Date.now()
+          }])
         }
         return
       }
@@ -904,22 +895,12 @@ export function VisualWorkflowDesigner({
     const handleOutgoingMessage = (data: any) => {
       if (data.targetAgent && data.message) {
         
-        // Set the host message
-        setHostMessage({
+        // Add to host messages stack
+        setHostMessages(prev => [...prev, {
           message: data.message,
-          target: data.targetAgent
-        })
-        
-        // Clear host message after 3 seconds (same as bubbles)
-        setTimeout(() => {
-          setHostMessage(prev => {
-            // Only clear if it's the same message
-            if (prev?.message === data.message) {
-              return null
-            }
-            return prev
-          })
-        }, 3000)
+          target: data.targetAgent,
+          timestamp: Date.now()
+        }])
         
         // Voice Live integration
         if (voiceLive.isConnected && voiceLiveCallMapRef.current.size > 0) {
@@ -1185,7 +1166,7 @@ export function VisualWorkflowDesigner({
     activeStepPerAgentRef.current = new Map()
     taskIdToStepRef.current = new Map()
     assignedStepsRef.current = new Set()
-    setHostMessage(null)
+    setHostMessages([])
     setWaitingStepId(null)
     setWaitingResponse("")
     setWaitingMessage(null)
@@ -2149,72 +2130,89 @@ export function VisualWorkflowDesigner({
         ctx.setLineDash([])
       }
       
-      // Host agent message in bottom right corner (during testing)
-      if (isTesting && hostMessage) {
-        ctx.save()
+      // Host agent messages in bottom right corner - stack them up
+      if (hostMessages.length > 0) {
+        const now = Date.now()
+        const MESSAGE_DISPLAY_TIME = 3000 // 3 seconds
+        const recentHostMessages = hostMessages.filter(msg => now - msg.timestamp < MESSAGE_DISPLAY_TIME)
         
-        const messageMaxWidth = 300
-        const padding = 12
-        const lineHeight = 16
-        
-        // Word wrap the message
-        ctx.font = "13px system-ui"
-        const words = hostMessage.message.split(' ')
-        const lines: string[] = []
-        let currentLine = words[0] || ''
-        
-        for (let i = 1; i < words.length; i++) {
-          const testLine = currentLine + ' ' + words[i]
-          const metrics = ctx.measureText(testLine)
-          if (metrics.width > messageMaxWidth && currentLine.length > 0) {
+        if (recentHostMessages.length > 0) {
+          ctx.save()
+          
+          const messageMaxWidth = 300
+          const padding = 12
+          const lineHeight = 16
+          const labelHeight = 22
+          const boxSpacing = 10
+          
+          let currentY = rect.height - 20 // Start from bottom
+          
+          // Draw each message from bottom to top
+          for (let msgIndex = recentHostMessages.length - 1; msgIndex >= 0; msgIndex--) {
+            const hostMsg = recentHostMessages[msgIndex]
+            
+            // Word wrap the message
+            ctx.font = "13px system-ui"
+            const words = hostMsg.message.split(' ')
+            const lines: string[] = []
+            let currentLine = words[0] || ''
+            
+            for (let i = 1; i < words.length; i++) {
+              const testLine = currentLine + ' ' + words[i]
+              const metrics = ctx.measureText(testLine)
+              if (metrics.width > messageMaxWidth && currentLine.length > 0) {
+                lines.push(currentLine)
+                currentLine = words[i]
+              } else {
+                currentLine = testLine
+              }
+            }
             lines.push(currentLine)
-            currentLine = words[i]
-          } else {
-            currentLine = testLine
+            
+            // Limit to 6 lines per message
+            const displayLines = lines.slice(0, 6)
+            if (lines.length > 6) {
+              displayLines[5] = displayLines[5].substring(0, 40) + '...'
+            }
+            
+            const boxHeight = displayLines.length * lineHeight + padding * 2 + labelHeight
+            const boxWidth = messageMaxWidth + padding * 2
+            
+            // Position box
+            const boxX = rect.width - boxWidth - 20
+            const boxY = currentY - boxHeight
+            
+            // Draw message box with host color
+            const gradient = ctx.createLinearGradient(boxX, boxY, boxX, boxY + boxHeight)
+            gradient.addColorStop(0, 'rgba(30, 41, 59, 0.95)')
+            gradient.addColorStop(1, 'rgba(15, 23, 42, 0.95)')
+            ctx.fillStyle = gradient
+            ctx.fillRect(boxX, boxY, boxWidth, boxHeight)
+            
+            // Border with host color
+            ctx.strokeStyle = HOST_COLOR
+            ctx.lineWidth = 2
+            ctx.strokeRect(boxX, boxY, boxWidth, boxHeight)
+            
+            // Label
+            ctx.fillStyle = HOST_COLOR
+            ctx.font = "bold 12px system-ui"
+            ctx.textAlign = "left"
+            ctx.fillText(`📤 ${hostMsg.target}`, boxX + padding, boxY + padding + 12)
+            
+            // Message text
+            ctx.fillStyle = "rgba(255, 255, 255, 0.95)"
+            ctx.font = "13px system-ui"
+            displayLines.forEach((line, i) => {
+              ctx.fillText(line, boxX + padding, boxY + padding + labelHeight + 4 + i * lineHeight)
+            })
+            
+            // Move up for next message
+            currentY = boxY - boxSpacing
           }
+          
+          ctx.restore()
         }
-        lines.push(currentLine)
-        
-        // Limit to 8 lines
-        const displayLines = lines.slice(0, 8)
-        if (lines.length > 8) {
-          displayLines[7] = displayLines[7].substring(0, 40) + '...'
-        }
-        
-        const labelHeight = 22
-        const boxHeight = displayLines.length * lineHeight + padding * 2 + labelHeight
-        const boxWidth = messageMaxWidth + padding * 2
-        
-        // Position in bottom right corner
-        const boxX = rect.width - boxWidth - 20
-        const boxY = rect.height - boxHeight - 20
-        
-        // Draw message box with host color
-        const gradient = ctx.createLinearGradient(boxX, boxY, boxX, boxY + boxHeight)
-        gradient.addColorStop(0, 'rgba(30, 41, 59, 0.95)')
-        gradient.addColorStop(1, 'rgba(15, 23, 42, 0.95)')
-        ctx.fillStyle = gradient
-        ctx.fillRect(boxX, boxY, boxWidth, boxHeight)
-        
-        // Border with host color
-        ctx.strokeStyle = HOST_COLOR
-        ctx.lineWidth = 2
-        ctx.strokeRect(boxX, boxY, boxWidth, boxHeight)
-        
-        // Label
-        ctx.fillStyle = HOST_COLOR
-        ctx.font = "bold 12px system-ui"
-        ctx.textAlign = "left"
-        ctx.fillText(`📤 To ${hostMessage.target}`, boxX + padding, boxY + padding + 12)
-        
-        // Message text
-        ctx.fillStyle = "rgba(255, 255, 255, 0.95)"
-        ctx.font = "13px system-ui"
-        displayLines.forEach((line, i) => {
-          ctx.fillText(line, boxX + padding, boxY + padding + labelHeight + 4 + i * lineHeight)
-        })
-        
-        ctx.restore()
       }
     }
 
@@ -2224,7 +2222,7 @@ export function VisualWorkflowDesigner({
     })
 
     return () => cancelAnimationFrame(animationFrameId)
-  }, [workflowSteps, selectedStepId, isDraggingOver, connections, isCreatingConnection, connectionStart, connectionPreview, workflowOrderMap, editingStepId, editingDescription, cursorPosition, showCursor, isTesting, stepStatuses, hostMessage])
+  }, [workflowSteps, selectedStepId, isDraggingOver, connections, isCreatingConnection, connectionStart, connectionPreview, workflowOrderMap, editingStepId, editingDescription, cursorPosition, showCursor, isTesting, stepStatuses, hostMessages])
   
   // Cursor blinking effect
   useEffect(() => {
