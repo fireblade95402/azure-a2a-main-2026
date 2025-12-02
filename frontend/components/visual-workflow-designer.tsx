@@ -3097,12 +3097,16 @@ export function VisualWorkflowDesigner({
           {(() => {
             // Calculate totals from all step statuses
             let agentTokens = 0
+            let agentPromptTokens = 0
+            let agentCompletionTokens = 0
             let totalTime = 0
             let completedAgents = 0
             
             stepStatuses.forEach((status) => {
               if (status.tokenUsage?.total_tokens) {
                 agentTokens += status.tokenUsage.total_tokens
+                agentPromptTokens += status.tokenUsage.prompt_tokens || 0
+                agentCompletionTokens += status.tokenUsage.completion_tokens || 0
               }
               if (status.duration) {
                 totalTime += status.duration
@@ -3114,12 +3118,33 @@ export function VisualWorkflowDesigner({
             
             // Add host agent tokens
             const hostTokens = hostTokenUsage?.total_tokens || 0
+            const hostPromptTokens = hostTokenUsage?.prompt_tokens || 0
+            const hostCompletionTokens = hostTokenUsage?.completion_tokens || 0
             const totalTokens = agentTokens + hostTokens
+            
+            // Calculate cost - GPT-4o pricing (per 1M tokens)
+            // Input: $2.50/1M, Output: $10/1M
+            const INPUT_COST_PER_1M = 2.50
+            const OUTPUT_COST_PER_1M = 10.00
+            
+            const totalPromptTokens = agentPromptTokens + hostPromptTokens
+            const totalCompletionTokens = agentCompletionTokens + hostCompletionTokens
+            
+            const inputCost = (totalPromptTokens / 1000000) * INPUT_COST_PER_1M
+            const outputCost = (totalCompletionTokens / 1000000) * OUTPUT_COST_PER_1M
+            const totalCost = inputCost + outputCost
             
             const formatTokens = (tokens: number) => {
               if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`
               if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`
               return tokens.toString()
+            }
+            
+            const formatCost = (cost: number) => {
+              if (cost >= 1) return `$${cost.toFixed(2)}`
+              if (cost >= 0.01) return `$${cost.toFixed(3)}`
+              if (cost >= 0.001) return `$${cost.toFixed(4)}`
+              return cost > 0 ? `$${cost.toFixed(5)}` : "$0"
             }
             
             const hasData = totalTokens > 0 || totalTime > 0
@@ -3183,6 +3208,22 @@ export function VisualWorkflowDesigner({
                     <div className="text-xs text-slate-500 uppercase tracking-wide">Total</div>
                     <div className="text-lg font-bold text-rose-400">
                       {hasData ? formatTokens(totalTokens) : "—"}
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Divider */}
+                <div className="w-px h-10 bg-slate-700"></div>
+                
+                {/* Cost */}
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-green-500/20 border border-green-500/30">
+                    <span className="text-green-400">💵</span>
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-500 uppercase tracking-wide">Est. Cost</div>
+                    <div className="text-lg font-bold text-green-400">
+                      {hasData ? formatCost(totalCost) : "—"}
                     </div>
                   </div>
                 </div>
