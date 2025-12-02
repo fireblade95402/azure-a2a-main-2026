@@ -5940,11 +5940,11 @@ IMPORTANT: Do NOT call any tools (send_message, list_remote_agents). All necessa
                     # Stream granular tool call to WebSocket for thinking box visibility
                     asyncio.create_task(self._emit_tool_call_event(agent_name, "send_message", arguments))
                     
-                    # Log tool call event
+                    # Log tool call event - use agent_name as actor so frontend can attribute correctly
                     if event_logger:
                         event_logger({
                             "id": str(uuid.uuid4()),
-                            "actor": "foundry-host-agent",
+                            "actor": agent_name,  # Use actual agent name, not host
                             "args": arguments,
                             "name": function_name,
                             "type": "tool_call"
@@ -5988,11 +5988,11 @@ IMPORTANT: Do NOT call any tools (send_message, list_remote_agents). All necessa
                             # Stream tool success to WebSocket
                             asyncio.create_task(self._emit_tool_response_event(agent_name, "send_message", "success", None))
                         
-                        # Log tool result event
+                        # Log tool result event - use agent_name as actor so frontend can attribute correctly
                         if event_logger:
                             event_logger({
                                 "id": str(uuid.uuid4()),
-                                "actor": "foundry-host-agent",
+                                "actor": agent_name,  # Use actual agent name, not host
                                 "name": "send_message",
                                 "type": "tool_result",
                                 "output": output
