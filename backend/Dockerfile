@@ -20,7 +20,7 @@ RUN apt-get update \
 COPY .env ./.env
 
 # Copy requirements file from backend directory
-COPY ../requirements.txt ./
+COPY backend/requirements.txt ./
 
 # Install Python dependencies
 RUN pip install --upgrade pip \
