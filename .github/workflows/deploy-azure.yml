@@ -53,9 +53,13 @@ jobs:
       
       - name: Build and Push Frontend
         run: |
-          docker build -t ${{ env.REGISTRY }}/frontend:${{ github.sha }} \
-                       -t ${{ env.REGISTRY }}/frontend:latest \
-                       ./frontend
+          docker build \
+            --build-arg NEXT_PUBLIC_A2A_API_URL="https://backend-uami.ambitioussky-6c709152.westus2.azurecontainerapps.io" \
+            --build-arg NEXT_PUBLIC_WEBSOCKET_URL="wss://websocket-uami.ambitioussky-6c709152.westus2.azurecontainerapps.io/events" \
+            --build-arg NEXT_PUBLIC_DEV_MODE="false" \
+            -t ${{ env.REGISTRY }}/frontend:${{ github.sha }} \
+            -t ${{ env.REGISTRY }}/frontend:latest \
+            ./frontend
           docker push ${{ env.REGISTRY }}/frontend:${{ github.sha }}
           docker push ${{ env.REGISTRY }}/frontend:latest
       
