@@ -747,60 +747,77 @@ class ConversationServer:
         
         This returns all discovered agents regardless of session.
         Each session can then choose which agents to enable.
+        Reads from both runtime agents AND persisted agent_registry.json.
         """
         try:
             log_debug("Fetching agent catalog...")
-            agents = self.manager.agents
             
-            # Do concurrent health checks
-            agent_urls = [getattr(agent, 'url', None) for agent in agents if hasattr(agent, 'name')]
-            health_tasks = [self._check_agent_health(url) for url in agent_urls]
-            health_results = await asyncio.gather(*health_tasks, return_exceptions=True)
+            # Get agents from persisted registry (agent_registry.json)
+            registry = get_registry()
+            persisted_agents = registry.get_all_agents()
             
-            health_map = {}
-            for i, url in enumerate(agent_urls):
-                if i < len(health_results) and not isinstance(health_results[i], Exception):
-                    health_map[url] = health_results[i]
-                else:
-                    health_map[url] = False
+            # Also get runtime agents from manager (in case there are agents not persisted)
+            runtime_agents = self.manager.agents
             
-            # Build agent list
+            # Merge: use persisted as base, add any runtime agents not in persisted
+            persisted_urls = {a.get('url', '').rstrip('/') for a in persisted_agents}
+            
+            # Build combined agent list from persisted registry
             agent_list = []
-            for agent in agents:
+            
+            # First, add all persisted agents
+            for agent in persisted_agents:
+                agent_url = agent.get('url', '')
+                is_healthy = await self._check_agent_health(agent_url)
+                
+                agent_data = {
+                    'name': agent.get('name', ''),
+                    'description': agent.get('description', ''),
+                    'url': agent_url,
+                    'version': agent.get('version', ''),
+                    'iconUrl': agent.get('iconUrl'),
+                    'provider': agent.get('provider'),
+                    'documentationUrl': agent.get('documentationUrl'),
+                    'capabilities': agent.get('capabilities', {}),
+                    'skills': agent.get('skills', []),
+                    'defaultInputModes': agent.get('defaultInputModes', []),
+                    'defaultOutputModes': agent.get('defaultOutputModes', []),
+                    'type': 'remote',
+                    'status': 'online' if is_healthy else 'offline'
+                }
+                agent_list.append(agent_data)
+            
+            # Add any runtime agents not in persisted registry
+            for agent in runtime_agents:
                 if hasattr(agent, 'name'):
-                    agent_url = getattr(agent, 'url', None)
-                    agent_status = health_map.get(agent_url, False)
-                    
-                    agent_data = {
-                        'name': agent.name,
-                        'description': getattr(agent, 'description', ''),
-                        'url': agent_url,
-                        'version': getattr(agent, 'version', ''),
-                        'iconUrl': getattr(agent, 'iconUrl', None),
-                        'provider': getattr(agent, 'provider', None),
-                        'documentationUrl': getattr(agent, 'documentationUrl', None),
-                        'capabilities': {
-                            'streaming': getattr(getattr(agent, 'capabilities', None), 'streaming', False),
-                            'pushNotifications': getattr(getattr(agent, 'capabilities', None), 'pushNotifications', False),
-                            'stateTransitionHistory': getattr(getattr(agent, 'capabilities', None), 'stateTransitionHistory', False),
-                            'extensions': getattr(getattr(agent, 'capabilities', None), 'extensions', [])
-                        } if hasattr(agent, 'capabilities') and agent.capabilities else {},
-                        'skills': [
-                            {
-                                'id': skill.id,
-                                'name': skill.name,
-                                'description': skill.description,
-                                'tags': getattr(skill, 'tags', []),
-                                'examples': getattr(skill, 'examples', []),
-                                'inputModes': getattr(skill, 'inputModes', []),
-                                'outputModes': getattr(skill, 'outputModes', [])
-                            }
-                            for skill in getattr(agent, 'skills', [])
-                        ] if hasattr(agent, 'skills') else [],
-                        'type': 'remote',
-                        'status': 'online' if agent_status else 'offline'
-                    }
-                    agent_list.append(agent_data)
+                    agent_url = getattr(agent, 'url', '')
+                    if agent_url.rstrip('/') not in persisted_urls:
+                        is_healthy = await self._check_agent_health(agent_url)
+                        agent_data = {
+                            'name': agent.name,
+                            'description': getattr(agent, 'description', ''),
+                            'url': agent_url,
+                            'version': getattr(agent, 'version', ''),
+                            'iconUrl': getattr(agent, 'iconUrl', None),
+                            'provider': getattr(agent, 'provider', None),
+                            'documentationUrl': getattr(agent, 'documentationUrl', None),
+                            'capabilities': {
+                                'streaming': getattr(getattr(agent, 'capabilities', None), 'streaming', False),
+                                'pushNotifications': getattr(getattr(agent, 'capabilities', None), 'pushNotifications', False),
+                                'stateTransitionHistory': getattr(getattr(agent, 'capabilities', None), 'stateTransitionHistory', False),
+                            } if hasattr(agent, 'capabilities') and agent.capabilities else {},
+                            'skills': [
+                                {
+                                    'id': skill.id,
+                                    'name': skill.name,
+                                    'description': skill.description,
+                                }
+                                for skill in getattr(agent, 'skills', [])
+                            ] if hasattr(agent, 'skills') else [],
+                            'type': 'remote',
+                            'status': 'online' if is_healthy else 'offline'
+                        }
+                        agent_list.append(agent_data)
             
             log_debug(f"Agent catalog: {len(agent_list)} agents")
             return {
