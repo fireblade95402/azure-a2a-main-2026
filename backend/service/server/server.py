@@ -191,19 +191,11 @@ class ConversationServer:
             '/agent/root-instruction/reset', self._reset_root_instruction, methods=['POST']
         )
         
-        # Session-scoped agent registration endpoints
-        app.add_api_route(
-            '/agents/catalog', self._get_agent_catalog, methods=['GET']
-        )
-        app.add_api_route(
-            '/agents/session/registered', self._get_session_agents, methods=['GET']
-        )
-        app.add_api_route(
-            '/agents/session/register', self._register_session_agent, methods=['POST']
-        )
-        app.add_api_route(
-            '/agents/session/unregister', self._unregister_session_agent, methods=['POST']
-        )
+        # Session-scoped agent endpoints
+        app.add_api_route('/agents/catalog', self._get_catalog, methods=['GET'])
+        app.add_api_route('/agents/session/enable', self._enable_session_agent, methods=['POST'])
+        app.add_api_route('/agents/session/disable', self._disable_session_agent, methods=['POST'])
+        app.add_api_route('/agents/session', self._get_session_agents, methods=['GET'])
 
     # Update API key in manager
     def update_api_key(self, api_key: str):
@@ -742,216 +734,6 @@ class ConversationServer:
                 "count": 0
             }
 
-    async def _get_agent_catalog(self):
-        """Get all agents from the global catalog with health status.
-        
-        This returns all discovered agents regardless of session.
-        Each session can then choose which agents to enable.
-        Reads from both runtime agents AND persisted agent_registry.json.
-        """
-        try:
-            log_debug("Fetching agent catalog...")
-            
-            # Get agents from persisted registry (agent_registry.json)
-            registry = get_registry()
-            persisted_agents = registry.get_all_agents()
-            
-            # Also get runtime agents from manager (in case there are agents not persisted)
-            runtime_agents = self.manager.agents
-            
-            # Merge: use persisted as base, add any runtime agents not in persisted
-            persisted_urls = {a.get('url', '').rstrip('/') for a in persisted_agents}
-            
-            # Build combined agent list from persisted registry
-            agent_list = []
-            
-            # First, add all persisted agents
-            for agent in persisted_agents:
-                agent_url = agent.get('url', '')
-                is_healthy = await self._check_agent_health(agent_url)
-                
-                agent_data = {
-                    'name': agent.get('name', ''),
-                    'description': agent.get('description', ''),
-                    'url': agent_url,
-                    'version': agent.get('version', ''),
-                    'iconUrl': agent.get('iconUrl'),
-                    'provider': agent.get('provider'),
-                    'documentationUrl': agent.get('documentationUrl'),
-                    'capabilities': agent.get('capabilities', {}),
-                    'skills': agent.get('skills', []),
-                    'defaultInputModes': agent.get('defaultInputModes', []),
-                    'defaultOutputModes': agent.get('defaultOutputModes', []),
-                    'type': 'remote',
-                    'status': 'online' if is_healthy else 'offline'
-                }
-                agent_list.append(agent_data)
-            
-            # Add any runtime agents not in persisted registry
-            for agent in runtime_agents:
-                if hasattr(agent, 'name'):
-                    agent_url = getattr(agent, 'url', '')
-                    if agent_url.rstrip('/') not in persisted_urls:
-                        is_healthy = await self._check_agent_health(agent_url)
-                        agent_data = {
-                            'name': agent.name,
-                            'description': getattr(agent, 'description', ''),
-                            'url': agent_url,
-                            'version': getattr(agent, 'version', ''),
-                            'iconUrl': getattr(agent, 'iconUrl', None),
-                            'provider': getattr(agent, 'provider', None),
-                            'documentationUrl': getattr(agent, 'documentationUrl', None),
-                            'capabilities': {
-                                'streaming': getattr(getattr(agent, 'capabilities', None), 'streaming', False),
-                                'pushNotifications': getattr(getattr(agent, 'capabilities', None), 'pushNotifications', False),
-                                'stateTransitionHistory': getattr(getattr(agent, 'capabilities', None), 'stateTransitionHistory', False),
-                            } if hasattr(agent, 'capabilities') and agent.capabilities else {},
-                            'skills': [
-                                {
-                                    'id': skill.id,
-                                    'name': skill.name,
-                                    'description': skill.description,
-                                }
-                                for skill in getattr(agent, 'skills', [])
-                            ] if hasattr(agent, 'skills') else [],
-                            'type': 'remote',
-                            'status': 'online' if is_healthy else 'offline'
-                        }
-                        agent_list.append(agent_data)
-            
-            log_debug(f"Agent catalog: {len(agent_list)} agents")
-            return {
-                "success": True,
-                "agents": agent_list,
-                "count": len(agent_list)
-            }
-        except Exception as e:
-            log_debug(f"Error fetching agent catalog: {str(e)}")
-            return {"success": False, "error": str(e), "agents": [], "count": 0}
-
-    async def _get_session_agents(self, request: Request):
-        """Get agents registered for a specific session.
-        
-        Query params:
-            sessionId: The session/tenant ID
-        """
-        try:
-            session_id = request.query_params.get('sessionId')
-            if not session_id:
-                return {"success": False, "error": "sessionId required", "agents": []}
-            
-            log_debug(f"Getting agents for session: {session_id}")
-            session_registry = get_session_registry()
-            registered_urls = session_registry.get_registered_urls(session_id)
-            
-            # Get full agent info with health status
-            agents = self.manager.agents
-            
-            # Filter to only registered agents
-            registered_agents = []
-            for agent in agents:
-                agent_url = getattr(agent, 'url', None)
-                if agent_url and agent_url.rstrip('/') in [u.rstrip('/') for u in registered_urls]:
-                    # Check health
-                    is_healthy = await self._check_agent_health(agent_url)
-                    
-                    agent_data = {
-                        'name': agent.name,
-                        'description': getattr(agent, 'description', ''),
-                        'url': agent_url,
-                        'version': getattr(agent, 'version', ''),
-                        'iconUrl': getattr(agent, 'iconUrl', None),
-                        'capabilities': {
-                            'streaming': getattr(getattr(agent, 'capabilities', None), 'streaming', False),
-                            'pushNotifications': getattr(getattr(agent, 'capabilities', None), 'pushNotifications', False),
-                            'stateTransitionHistory': getattr(getattr(agent, 'capabilities', None), 'stateTransitionHistory', False),
-                        } if hasattr(agent, 'capabilities') and agent.capabilities else {},
-                        'skills': [
-                            {
-                                'id': skill.id,
-                                'name': skill.name,
-                                'description': skill.description,
-                            }
-                            for skill in getattr(agent, 'skills', [])
-                        ] if hasattr(agent, 'skills') else [],
-                        'type': 'remote',
-                        'status': 'online' if is_healthy else 'offline'
-                    }
-                    registered_agents.append(agent_data)
-            
-            log_debug(f"Session {session_id} has {len(registered_agents)} registered agents")
-            return {
-                "success": True,
-                "agents": registered_agents,
-                "count": len(registered_agents),
-                "sessionId": session_id
-            }
-        except Exception as e:
-            log_debug(f"Error getting session agents: {str(e)}")
-            return {"success": False, "error": str(e), "agents": []}
-
-    async def _register_session_agent(self, request: Request):
-        """Register an agent for a specific session.
-        
-        Body:
-            sessionId: The session/tenant ID
-            agentUrl: URL of the agent to register
-        """
-        try:
-            data = await request.json()
-            session_id = data.get('sessionId')
-            agent_url = data.get('agentUrl')
-            
-            if not session_id:
-                return {"success": False, "error": "sessionId required"}
-            if not agent_url:
-                return {"success": False, "error": "agentUrl required"}
-            
-            log_debug(f"Registering agent {agent_url} for session {session_id}")
-            session_registry = get_session_registry()
-            success = session_registry.register_agent(session_id, agent_url)
-            
-            if success:
-                log_debug(f"✅ Agent registered for session: {agent_url}")
-                return {"success": True, "message": f"Agent registered for session"}
-            else:
-                log_debug(f"Agent already registered for session: {agent_url}")
-                return {"success": True, "message": "Agent already registered"}
-        except Exception as e:
-            log_debug(f"Error registering session agent: {str(e)}")
-            return {"success": False, "error": str(e)}
-
-    async def _unregister_session_agent(self, request: Request):
-        """Unregister an agent from a specific session.
-        
-        Body:
-            sessionId: The session/tenant ID
-            agentUrl: URL of the agent to unregister
-        """
-        try:
-            data = await request.json()
-            session_id = data.get('sessionId')
-            agent_url = data.get('agentUrl')
-            
-            if not session_id:
-                return {"success": False, "error": "sessionId required"}
-            if not agent_url:
-                return {"success": False, "error": "agentUrl required"}
-            
-            log_debug(f"Unregistering agent {agent_url} from session {session_id}")
-            session_registry = get_session_registry()
-            success = session_registry.unregister_agent(session_id, agent_url)
-            
-            if success:
-                log_debug(f"✅ Agent unregistered from session: {agent_url}")
-                return {"success": True, "message": "Agent unregistered from session"}
-            else:
-                log_debug(f"Agent not found in session: {agent_url}")
-                return {"success": False, "error": "Agent not registered for this session"}
-        except Exception as e:
-            log_debug(f"Error unregistering session agent: {str(e)}")
-            return {"success": False, "error": str(e)}
-
     def _files(self, file_id):
         if file_id not in self._file_cache:
             raise Exception('file not found')
@@ -1057,3 +839,48 @@ class ConversationServer:
                 'status': 'error',
                 'message': str(e)
             }
+
+    # ==================== SESSION AGENT ENDPOINTS ====================
+
+    async def _get_catalog(self):
+        """Get all agents from the catalog."""
+        registry = get_registry()
+        agents = registry.get_all_agents()
+        return {'status': 'success', 'agents': agents}
+
+    async def _enable_session_agent(self, request: Request):
+        """Enable an agent for a session."""
+        body = await request.json()
+        session_id = body.get('session_id')
+        agent = body.get('agent')
+        
+        if not session_id or not agent:
+            return {'status': 'error', 'message': 'session_id and agent required'}
+        
+        session_registry = get_session_registry()
+        session_registry.enable_agent(session_id, agent)
+        return {'status': 'success', 'agent': agent}
+
+    async def _disable_session_agent(self, request: Request):
+        """Disable an agent for a session."""
+        body = await request.json()
+        session_id = body.get('session_id')
+        agent_url = body.get('agent_url')
+        
+        if not session_id or not agent_url:
+            return {'status': 'error', 'message': 'session_id and agent_url required'}
+        
+        session_registry = get_session_registry()
+        removed = session_registry.disable_agent(session_id, agent_url)
+        return {'status': 'success', 'removed': removed}
+
+    async def _get_session_agents(self, request: Request):
+        """Get all agents enabled for a session."""
+        session_id = request.query_params.get('session_id')
+        
+        if not session_id:
+            return {'status': 'error', 'message': 'session_id required'}
+        
+        session_registry = get_session_registry()
+        agents = session_registry.get_session_agents(session_id)
+        return {'status': 'success', 'agents': agents}

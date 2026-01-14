@@ -286,163 +286,14 @@ class AgentRegistry:
         return filtered_agents
 
 
-class SessionAgentRegistry:
-    """Per-session registry for tracking which agents a user has enabled.
-    
-    This is separate from the global AgentRegistry (catalog) which stores
-    all discovered agents. Each session/tenant can enable a subset of
-    agents from the catalog.
-    """
-    
-    def __init__(self, base_dir: str | Path | None = None):
-        """Initialize session registry storage.
-        
-        Args:
-            base_dir: Base directory for storing session registrations
-        """
-        if base_dir is None:
-            self.base_dir = (
-                Path(__file__).resolve().parent.parent / "data" / "session_agents"
-            )
-        else:
-            self.base_dir = Path(base_dir)
-        self.base_dir.mkdir(parents=True, exist_ok=True)
-    
-    def _get_session_file(self, session_id: str) -> Path:
-        """Get the file path for a session's agent registrations."""
-        # Sanitize session_id to prevent path traversal
-        safe_id = "".join(c for c in session_id if c.isalnum() or c in '-_')
-        return self.base_dir / f"{safe_id}.json"
-    
-    def _load_session(self, session_id: str) -> List[str]:
-        """Load registered agent URLs for a session.
-        
-        Returns:
-            List of registered agent URLs
-        """
-        session_file = self._get_session_file(session_id)
-        try:
-            with open(session_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            return []
-    
-    def _save_session(self, session_id: str, agent_urls: List[str]):
-        """Save registered agent URLs for a session."""
-        session_file = self._get_session_file(session_id)
-        with open(session_file, 'w', encoding='utf-8') as f:
-            json.dump(agent_urls, f, indent=2)
-    
-    def register_agent(self, session_id: str, agent_url: str) -> bool:
-        """Register an agent for a session.
-        
-        Args:
-            session_id: The session/tenant ID
-            agent_url: URL of the agent to register
-            
-        Returns:
-            True if registered, False if already registered
-        """
-        agent_urls = self._load_session(session_id)
-        
-        # Normalize URL
-        agent_url = agent_url.rstrip('/')
-        
-        if agent_url in agent_urls:
-            return False
-        
-        agent_urls.append(agent_url)
-        self._save_session(session_id, agent_urls)
-        return True
-    
-    def unregister_agent(self, session_id: str, agent_url: str) -> bool:
-        """Unregister an agent from a session.
-        
-        Args:
-            session_id: The session/tenant ID
-            agent_url: URL of the agent to unregister
-            
-        Returns:
-            True if unregistered, False if not found
-        """
-        agent_urls = self._load_session(session_id)
-        
-        # Normalize URL
-        agent_url = agent_url.rstrip('/')
-        
-        if agent_url not in agent_urls:
-            return False
-        
-        agent_urls.remove(agent_url)
-        self._save_session(session_id, agent_urls)
-        return True
-    
-    def get_registered_urls(self, session_id: str) -> List[str]:
-        """Get all registered agent URLs for a session.
-        
-        Args:
-            session_id: The session/tenant ID
-            
-        Returns:
-            List of registered agent URLs
-        """
-        return self._load_session(session_id)
-    
-    def is_registered(self, session_id: str, agent_url: str) -> bool:
-        """Check if an agent is registered for a session.
-        
-        Args:
-            session_id: The session/tenant ID
-            agent_url: URL of the agent to check
-            
-        Returns:
-            True if registered, False otherwise
-        """
-        agent_urls = self._load_session(session_id)
-        return agent_url.rstrip('/') in agent_urls
-    
-    def get_registered_agents(self, session_id: str, catalog: 'AgentRegistry') -> List[Dict[str, Any]]:
-        """Get full agent details for all registered agents in a session.
-        
-        Args:
-            session_id: The session/tenant ID
-            catalog: The global agent catalog to look up agent details
-            
-        Returns:
-            List of agent configuration dictionaries
-        """
-        registered_urls = self._load_session(session_id)
-        all_agents = catalog.get_all_agents()
-        
-        # Match by URL
-        registered_agents = []
-        for agent in all_agents:
-            agent_url = agent.get('url', '').rstrip('/')
-            if agent_url in registered_urls:
-                registered_agents.append(agent)
-        
-        return registered_agents
-    
-    def clear_session(self, session_id: str):
-        """Clear all registrations for a session.
-        
-        Args:
-            session_id: The session/tenant ID
-        """
-        session_file = self._get_session_file(session_id)
-        if session_file.exists():
-            session_file.unlink()
-
-
-# Global registry instances
+# Global registry instance
 _registry = None
-_session_registry = None
 
 def get_registry() -> AgentRegistry:
-    """Get the global agent catalog instance.
+    """Get the global agent registry instance.
     
     Returns:
-        AgentRegistry instance (global catalog)
+        AgentRegistry instance
     """
     global _registry
     if _registry is None:
@@ -450,12 +301,51 @@ def get_registry() -> AgentRegistry:
     return _registry
 
 
-def get_session_registry() -> SessionAgentRegistry:
-    """Get the session agent registry instance.
+class SessionAgentRegistry:
+    """In-memory registry for session-enabled agents."""
     
-    Returns:
-        SessionAgentRegistry instance (per-session registrations)
-    """
+    def __init__(self):
+        self._sessions: Dict[str, List[Dict[str, Any]]] = {}
+    
+    def enable_agent(self, session_id: str, agent: Dict[str, Any]) -> bool:
+        """Enable an agent for a session."""
+        if session_id not in self._sessions:
+            self._sessions[session_id] = []
+        
+        # Check if already enabled (by URL)
+        if any(a.get('url') == agent.get('url') for a in self._sessions[session_id]):
+            return False
+        
+        self._sessions[session_id].append(agent)
+        return True
+    
+    def disable_agent(self, session_id: str, agent_url: str) -> bool:
+        """Disable an agent for a session."""
+        if session_id not in self._sessions:
+            return False
+        
+        original_len = len(self._sessions[session_id])
+        self._sessions[session_id] = [
+            a for a in self._sessions[session_id] if a.get('url') != agent_url
+        ]
+        return len(self._sessions[session_id]) < original_len
+    
+    def get_session_agents(self, session_id: str) -> List[Dict[str, Any]]:
+        """Get all enabled agents for a session."""
+        return self._sessions.get(session_id, [])
+    
+    def is_enabled(self, session_id: str, agent_url: str) -> bool:
+        """Check if an agent is enabled for a session."""
+        return any(
+            a.get('url') == agent_url 
+            for a in self._sessions.get(session_id, [])
+        )
+
+
+_session_registry = None
+
+def get_session_registry() -> SessionAgentRegistry:
+    """Get the global session agent registry instance."""
     global _session_registry
     if _session_registry is None:
         _session_registry = SessionAgentRegistry()

@@ -44,7 +44,7 @@ export function ChatLayout() {
   }, [workflow])
 
   // This state represents the Host Agent's knowledge of registered agents.
-  // It starts empty and gets populated by session agents fetch.
+  // It starts empty and gets populated by the WebSocket agent registry sync.
   const [registeredAgents, setRegisteredAgents] = useState<any[]>([])
   const [connectedUsers, setConnectedUsers] = useState<any[]>([])
   const [dagNodes, setDagNodes] = useState(() => [
@@ -54,48 +54,71 @@ export function ChatLayout() {
     ...initialDagLinks,
   ])
 
-  // Get session ID for multi-tenancy
-  const sessionId = getOrCreateSessionId()
-
   // Use the Event Hub hook for proper client-side initialization
   const { subscribe, unsubscribe, emit } = useEventHub()
 
-  // Fetch session agents on initial load
-  useEffect(() => {
-    const fetchSessionAgents = async () => {
-      try {
-        const response = await fetch(`/api/agents/session/registered?sessionId=${encodeURIComponent(sessionId)}`)
-        if (response.ok) {
-          const data = await response.json()
-          if (data.agents && Array.isArray(data.agents)) {
-            const transformedAgents = data.agents.map((agent: any) => ({
-              id: agent.name.toLowerCase().replace(/\s+/g, '-'),
-              name: agent.name,
-              description: agent.description,
-              status: agent.status || "online",
-              version: agent.version,
-              endpoint: agent.url,
-              organization: "Registry Agent",
-              capabilities: agent.capabilities,
-              skills: agent.skills,
-              defaultInputModes: agent.defaultInputModes,
-              defaultOutputModes: agent.defaultOutputModes,
-              avatar: '/placeholder.svg?height=32&width=32'
-            }))
-            setRegisteredAgents(transformedAgents)
-            if (DEBUG) console.log("[ChatLayout] Loaded", transformedAgents.length, "session agents")
-          }
-        }
-      } catch (error) {
-        console.error("[ChatLayout] Error fetching session agents:", error)
-      }
-    }
+  // Helper to update DAG from agents list
+  const updateDagFromAgents = (agents: any[]) => {
+    setDagNodes(prev => {
+      const coreNodes = prev.filter(node => node.group === "user" || node.group === "host")
+      const newAgentNodes = agents.map((agent: any) => ({ 
+        id: agent.name, 
+        group: "agent" 
+      }))
+      return [...coreNodes, ...newAgentNodes]
+    })
     
-    fetchSessionAgents()
-  }, [sessionId, DEBUG])
+    setDagLinks(prev => {
+      const coreLinks = prev.filter(link => 
+        (link.source === "User" && link.target === "Host Agent") ||
+        (link.source === "Host Agent" && link.target === "User")
+      )
+      const agentLinks = agents.map((agent: any) => ({
+        source: "Host Agent",
+        target: agent.name
+      }))
+      return [...coreLinks, ...agentLinks]
+    })
+  }
+
+  // Fetch session agents from backend
+  const fetchSessionAgents = async () => {
+    try {
+      const sessionId = getOrCreateSessionId()
+      const baseUrl = process.env.NEXT_PUBLIC_A2A_API_URL || 'http://localhost:12000'
+      const response = await fetch(`${baseUrl}/agents/session?session_id=${sessionId}`)
+      
+      if (response.ok) {
+        const data = await response.json()
+        const agents = (data.agents || []).map((agent: any) => ({
+          id: agent.name.toLowerCase().replace(/\s+/g, '-'),
+          name: agent.name,
+          description: agent.description,
+          status: "online",
+          version: agent.version,
+          endpoint: agent.url,
+          organization: "Registry Agent",
+          capabilities: agent.capabilities,
+          skills: agent.skills,
+          defaultInputModes: agent.defaultInputModes,
+          defaultOutputModes: agent.defaultOutputModes,
+          avatar: '/placeholder.svg?height=32&width=32'
+        }))
+        
+        setRegisteredAgents(agents)
+        updateDagFromAgents(agents)
+        if (DEBUG) console.log("[ChatLayout] Loaded", agents.length, "session agents")
+      }
+    } catch (err) {
+      console.error('[ChatLayout] Error fetching session agents:', err)
+    }
+  }
 
   // This useEffect hook represents the "Host Agent" listening to the Event Hub.
   useEffect(() => {
+    // Load session agents on mount
+    fetchSessionAgents()
+
     // Handle connected users list updates
     const handleUserListUpdate = (eventData: any) => {
       if (DEBUG) console.log("[ChatLayout] Received user list update")
@@ -104,13 +127,48 @@ export function ChatLayout() {
       }
     }
 
-    // Handle registry sync events from WebSocket - this is for the CATALOG, not the sidebar
-    // The sidebar now shows only session-enabled agents, not all agents from registry sync
-    const handleAgentRegistrySync = (data: any) => {
-      if (DEBUG) console.log("[ChatLayout] Received agent registry sync (catalog update, not sidebar)")
-      // This event is now used to update the catalog, not the sidebar
-      // The sidebar is populated from session agents only
-    }    // Handle other Event Hub events for logging/debugging
+    // Handle agent enabled in catalog
+    const handleAgentEnabled = (data: any) => {
+      if (DEBUG) console.log("[ChatLayout] Agent enabled:", data.agent?.name)
+      if (data.agent) {
+        const newAgent = {
+          id: data.agent.name.toLowerCase().replace(/\s+/g, '-'),
+          name: data.agent.name,
+          description: data.agent.description,
+          status: "online",
+          version: data.agent.version,
+          endpoint: data.agent.url,
+          organization: "Registry Agent",
+          capabilities: data.agent.capabilities,
+          skills: data.agent.skills,
+          defaultInputModes: data.agent.defaultInputModes,
+          defaultOutputModes: data.agent.defaultOutputModes,
+          avatar: '/placeholder.svg?height=32&width=32'
+        }
+        
+        setRegisteredAgents(prev => {
+          // Avoid duplicates
+          if (prev.some(a => a.endpoint === newAgent.endpoint)) return prev
+          const updated = [...prev, newAgent]
+          updateDagFromAgents(updated)
+          return updated
+        })
+      }
+    }
+
+    // Handle agent disabled in catalog
+    const handleAgentDisabled = (data: any) => {
+      if (DEBUG) console.log("[ChatLayout] Agent disabled:", data.agent_url)
+      if (data.agent_url) {
+        setRegisteredAgents(prev => {
+          const updated = prev.filter(a => a.endpoint !== data.agent_url)
+          updateDagFromAgents(updated)
+          return updated
+        })
+      }
+    }
+
+    // Handle other Event Hub events for logging/debugging
     const handleMessage = (data: any) => {
       if (DEBUG) console.log("[ChatLayout] Message event")
       // ChatPanel already handles message events and emits final_response
@@ -147,57 +205,15 @@ export function ChatLayout() {
       if (DEBUG) console.log("[ChatLayout] Form submitted")
     }
 
-    // Handle agent session updates (enable/disable from catalog)
-    const handleAgentSessionUpdated = (data: any) => {
-      console.log("[ChatLayout] Agent session updated:", data)
-      const { agentUrl, enabled, agent } = data
-      
-      if (enabled && agent) {
-        // Add agent directly from the event data
-        const newAgent = {
-          id: agent.name.toLowerCase().replace(/\s+/g, '-'),
-          name: agent.name,
-          description: agent.description,
-          status: agent.status || "online",
-          version: agent.version,
-          endpoint: agent.url,
-          organization: "Registry Agent",
-          capabilities: agent.capabilities,
-          skills: agent.skills,
-          avatar: '/placeholder.svg?height=32&width=32'
-        }
-        
-        setRegisteredAgents(prev => {
-          // Check if already exists
-          const exists = prev.some(a => a.endpoint?.replace(/\/$/, '') === agent.url?.replace(/\/$/, ''))
-          if (exists) {
-            console.log("[ChatLayout] Agent already in sidebar:", agent.name)
-            return prev
-          }
-          console.log("[ChatLayout] Adding agent to sidebar:", agent.name)
-          return [...prev, newAgent]
-        })
-      } else if (!enabled) {
-        // Remove agent from sidebar by URL
-        setRegisteredAgents(prev => {
-          const filtered = prev.filter(a => 
-            a.endpoint?.replace(/\/$/, '') !== agentUrl?.replace(/\/$/, '')
-          )
-          console.log("[ChatLayout] Removed agent from sidebar, remaining:", filtered.length)
-          return filtered
-        })
-      }
-    }
-
     // Subscribe to Event Hub events
-    subscribe("agent_registry_sync", handleAgentRegistrySync)
+    subscribe("session_agent_enabled", handleAgentEnabled)
+    subscribe("session_agent_disabled", handleAgentDisabled)
     subscribe("message", handleMessage)
     subscribe("conversation_created", handleConversationCreated)
     subscribe("task_updated", handleTaskUpdated)
     subscribe("file_uploaded", handleFileUploaded)
     subscribe("form_submitted", handleFormSubmitted)
     subscribe("user_list_update", handleUserListUpdate)
-    subscribe("agentSessionUpdated", handleAgentSessionUpdated)
 
     if (DEBUG) console.log("[ChatLayout] Subscribed to Event Hub events")
 
@@ -206,17 +222,17 @@ export function ChatLayout() {
 
     // Clean up the subscriptions when the component unmounts.
     return () => {
-      unsubscribe("agent_registry_sync", handleAgentRegistrySync)
+      unsubscribe("session_agent_enabled", handleAgentEnabled)
+      unsubscribe("session_agent_disabled", handleAgentDisabled)
       unsubscribe("message", handleMessage)
       unsubscribe("conversation_created", handleConversationCreated)
       unsubscribe("task_updated", handleTaskUpdated)
       unsubscribe("file_uploaded", handleFileUploaded)
       unsubscribe("form_submitted", handleFormSubmitted)
       unsubscribe("user_list_update", handleUserListUpdate)
-      unsubscribe("agentSessionUpdated", handleAgentSessionUpdated)
       if (DEBUG) console.log("[ChatLayout] Unsubscribed from Event Hub events")
     }
-  }, [subscribe, unsubscribe, emit, DEBUG])
+  }, [subscribe, unsubscribe, emit])
 
   return (
     <div className="h-full w-full">
