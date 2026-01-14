@@ -95,7 +95,8 @@ jobs:
         run: |
           docker build -t ${{ env.REGISTRY }}/backend:${{ github.sha }} \
                        -t ${{ env.REGISTRY }}/backend:latest \
-                       ./backend
+                       -f backend/Dockerfile \
+                       .
           docker push ${{ env.REGISTRY }}/backend:${{ github.sha }}
           docker push ${{ env.REGISTRY }}/backend:latest
       
@@ -132,7 +133,7 @@ jobs:
           docker build -f backend/Dockerfile.websocket \
                        -t ${{ env.REGISTRY }}/websocket:${{ github.sha }} \
                        -t ${{ env.REGISTRY }}/websocket:latest \
-                       ./backend
+                       backend
           docker push ${{ env.REGISTRY }}/websocket:${{ github.sha }}
           docker push ${{ env.REGISTRY }}/websocket:latest
       
