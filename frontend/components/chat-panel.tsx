@@ -758,9 +758,9 @@ export function ChatPanel({ dagNodes, dagLinks, agentMode, enableInterAgentMemor
             if (DEBUG) console.log("[ChatPanel] Converted messages:", convertedMessages.length)
             
             if (convertedMessages.length === 0) {
-              // If no messages found, show initial welcome message
-              if (DEBUG) console.log("[ChatPanel] No messages found, showing welcome")
-              setMessages(initialMessages)
+              // If no messages found, show empty chat (ChatGPT-like)
+              if (DEBUG) console.log("[ChatPanel] No messages found, showing empty chat")
+              setMessages([])
             }
           } else {
             if (DEBUG) console.log("[ChatPanel] No conversation found or no messages")
@@ -769,16 +769,16 @@ export function ChatPanel({ dagNodes, dagLinks, agentMode, enableInterAgentMemor
               // Clear the stale conversationId from URL (conversationId will recalculate on next render)
               window.history.replaceState({}, '', '/')
             }
-            setMessages(initialMessages)
+            setMessages([])
           }
         } catch (error) {
           console.error("[ChatPanel] Failed to load conversation messages:", error)
-          setMessages(initialMessages)
+          setMessages([])
         }
       } else {
-        // New conversation or default - show initial welcome message
-        if (DEBUG) console.log("[ChatPanel] Using default conversation")
-        setMessages(initialMessages)
+        // New conversation or default - show empty chat (ChatGPT-like behavior)
+        if (DEBUG) console.log("[ChatPanel] Using default conversation - showing empty chat")
+        setMessages([])
       }
       
       // Only reset inference state if we're not actively inferencing
