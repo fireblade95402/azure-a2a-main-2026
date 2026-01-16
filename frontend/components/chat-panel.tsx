@@ -1486,6 +1486,9 @@ export function ChatPanel({ dagNodes, dagLinks, agentMode, enableInterAgentMemor
     if (!files || files.length === 0) return
 
     try {
+      // Get session ID for tenant isolation
+      const sessionId = getOrCreateSessionId()
+      
       // Upload each file individually
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
@@ -1495,6 +1498,9 @@ export function ChatPanel({ dagNodes, dagLinks, agentMode, enableInterAgentMemor
         const baseUrl = process.env.NEXT_PUBLIC_A2A_API_URL || 'http://localhost:12000'
         const response = await fetch(`${baseUrl}/upload`, {
           method: 'POST',
+          headers: {
+            'X-Session-ID': sessionId
+          },
           body: formData
         })
 
@@ -2508,6 +2514,9 @@ export function ChatPanel({ dagNodes, dagLinks, agentMode, enableInterAgentMemor
             if (!blob) return
             setMaskUploadInFlight(true)
             try {
+              // Get session ID for tenant isolation
+              const sessionId = getOrCreateSessionId()
+              
               const formData = new FormData()
               const filename = `${(refineTarget.imageMeta?.fileName || "mask")?.replace(/\.[^.]+$/, "")}-mask.png`
               const maskFile = new File([blob], filename, { type: "image/png" })
@@ -2516,6 +2525,9 @@ export function ChatPanel({ dagNodes, dagLinks, agentMode, enableInterAgentMemor
               const baseUrl = process.env.NEXT_PUBLIC_A2A_API_URL || 'http://localhost:12000'
               const response = await fetch(`${baseUrl}/upload`, {
                 method: 'POST',
+                headers: {
+                  'X-Session-ID': sessionId
+                },
                 body: formData
               })
               const result = await response.json()

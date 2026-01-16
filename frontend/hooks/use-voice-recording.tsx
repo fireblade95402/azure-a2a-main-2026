@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useCallback } from 'react'
+import { getOrCreateSessionId } from '@/lib/session'
 
 export interface VoiceRecordingState {
   isRecording: boolean
@@ -165,9 +166,13 @@ export function useVoiceRecording() {
       const filename = `voice_recording_${Date.now()}.wav`
       formData.append('file', wavBlob, filename)
 
-      // Upload to backend
+      // Upload to backend with session ID for tenant isolation
+      const sessionId = getOrCreateSessionId()
       const response = await fetch('/api/upload-voice', {
         method: 'POST',
+        headers: {
+          'X-Session-ID': sessionId
+        },
         body: formData
       })
 

@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Trash2, Download, Eye, ExternalLink } from "lucide-react"
 import { useEventHub } from "@/hooks/use-event-hub"
+import { getOrCreateSessionId } from "@/lib/session"
 
 interface FileRecord {
   id: string
@@ -26,6 +27,12 @@ interface FileHistoryProps {
 
 const SESSION_ID_KEY = 'backendSessionId'
 
+// Get session-scoped storage key for file history
+function getFileHistoryStorageKey(): string {
+  const sessionId = getOrCreateSessionId()
+  return `uploadedFilesHistory_${sessionId}`
+}
+
 export function FileHistory({ className, onFileSelect }: FileHistoryProps) {
   const [files, setFiles] = useState<FileRecord[]>([])
   const { subscribe, unsubscribe } = useEventHub()
@@ -39,11 +46,11 @@ export function FileHistory({ className, onFileSelect }: FileHistoryProps) {
       const storedSessionId = localStorage.getItem(SESSION_ID_KEY)
       
       if (storedSessionId && storedSessionId !== newSessionId) {
-        // Backend restarted - clear file history
+        // Backend restarted - clear file history for old session
         console.log('[FileHistory] Backend restarted (session changed), clearing file history')
         console.log('[FileHistory] Old session:', storedSessionId?.slice(0, 8), '-> New session:', newSessionId.slice(0, 8))
         setFiles([])
-        localStorage.removeItem('uploadedFilesHistory')
+        // Note: We no longer clear localStorage here since each session has its own key
       }
       
       // Store the new session ID
@@ -60,7 +67,8 @@ export function FileHistory({ className, onFileSelect }: FileHistoryProps) {
 
   // Load files from localStorage on mount and validate they still exist
   useEffect(() => {
-    const savedFiles = localStorage.getItem('uploadedFilesHistory')
+    const storageKey = getFileHistoryStorageKey()
+    const savedFiles = localStorage.getItem(storageKey)
     if (savedFiles) {
       try {
         const parsedFiles = JSON.parse(savedFiles).map((file: any) => ({
@@ -99,14 +107,15 @@ export function FileHistory({ className, onFileSelect }: FileHistoryProps) {
       } catch (error) {
         console.error('Error loading file history:', error)
         // Clear corrupted data
-        localStorage.removeItem('uploadedFilesHistory')
+        localStorage.removeItem(storageKey)
       }
     }
   }, [])
 
   // Save files to localStorage whenever files change
   useEffect(() => {
-    localStorage.setItem('uploadedFilesHistory', JSON.stringify(files))
+    const storageKey = getFileHistoryStorageKey()
+    localStorage.setItem(storageKey, JSON.stringify(files))
   }, [files])
 
   // Function to add a new file to history (will be called from parent)
