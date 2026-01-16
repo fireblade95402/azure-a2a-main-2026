@@ -5,12 +5,22 @@ export async function POST(request: NextRequest) {
     // Get the form data from the frontend
     const formData = await request.formData()
     
+    // Get session ID from request header for tenant isolation
+    const sessionId = request.headers.get('X-Session-ID')
+    
     // Get the backend URL from environment or default
     const backendUrl = process.env.NEXT_PUBLIC_A2A_API_URL || 'http://localhost:12000'
+    
+    // Build headers to forward to backend
+    const headers: Record<string, string> = {}
+    if (sessionId) {
+      headers['X-Session-ID'] = sessionId
+    }
     
     // Forward the request to the Python backend
     const response = await fetch(`${backendUrl}/upload-voice`, {
       method: 'POST',
+      headers,
       body: formData,
     })
 

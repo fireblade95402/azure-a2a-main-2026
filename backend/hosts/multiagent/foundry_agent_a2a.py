@@ -6729,25 +6729,53 @@ IMPORTANT: Do NOT call any tools (send_message, list_remote_agents). Simply synt
                 if part.root.file.uri.startswith('/uploads/'):
                     file_uuid = part.root.file.uri.split('/')[-1]
                     upload_dir = "uploads"
-                    print(f"🔍 FILE DEBUG: Looking for file with UUID: {file_uuid} in {upload_dir}")
+                    
+                    # Extract session_id from context_id for tenant isolation
+                    session_id = None
+                    if context_id and '::' in context_id:
+                        session_id = context_id.split('::')[0]
+                    
+                    print(f"🔍 FILE DEBUG: Looking for file with UUID: {file_uuid} in {upload_dir} (session: {session_id})")
                     
                     # Find the actual file with this UUID (may have extension)
                     try:
                         import os
-                        print(f"🔍 FILE DEBUG: About to list files in {upload_dir}")
-                        uploaded_files = os.listdir(upload_dir)
-                        print(f"🔍 FILE DEBUG: Found {len(uploaded_files)} files")
                         
-                        for uploaded_filename in uploaded_files:
-                            print(f"🔍 FILE DEBUG: Checking file: {uploaded_filename}")
-                            if uploaded_filename.startswith(file_uuid):
-                                file_path = os.path.join(upload_dir, uploaded_filename)
-                                print(f"🔍 FILE DEBUG: Reading file: {file_path}")
-                                with open(file_path, 'rb') as f:
-                                    file_bytes = f.read()
-                                print(f"📄 FILE DEBUG: Loaded uploaded file: {len(file_bytes)} bytes from {file_path}")
-                                break
-                        else:
+                        # Try session-scoped directory first (new format)
+                        if session_id:
+                            session_upload_dir = os.path.join(upload_dir, session_id)
+                            if os.path.exists(session_upload_dir):
+                                print(f"🔍 FILE DEBUG: Checking session-scoped directory: {session_upload_dir}")
+                                uploaded_files = os.listdir(session_upload_dir)
+                                for uploaded_filename in uploaded_files:
+                                    if uploaded_filename.startswith(file_uuid):
+                                        file_path = os.path.join(session_upload_dir, uploaded_filename)
+                                        print(f"🔍 FILE DEBUG: Reading file from session dir: {file_path}")
+                                        with open(file_path, 'rb') as f:
+                                            file_bytes = f.read()
+                                        print(f"📄 FILE DEBUG: Loaded uploaded file: {len(file_bytes)} bytes from {file_path}")
+                                        break
+                        
+                        # Fall back to flat directory (legacy format)
+                        if file_bytes is None and os.path.exists(upload_dir):
+                            print(f"🔍 FILE DEBUG: Falling back to flat directory: {upload_dir}")
+                            uploaded_files = os.listdir(upload_dir)
+                            print(f"🔍 FILE DEBUG: Found {len(uploaded_files)} entries")
+                            
+                            for uploaded_filename in uploaded_files:
+                                # Skip directories (session folders)
+                                if os.path.isdir(os.path.join(upload_dir, uploaded_filename)):
+                                    continue
+                                print(f"🔍 FILE DEBUG: Checking file: {uploaded_filename}")
+                                if uploaded_filename.startswith(file_uuid):
+                                    file_path = os.path.join(upload_dir, uploaded_filename)
+                                    print(f"🔍 FILE DEBUG: Reading file: {file_path}")
+                                    with open(file_path, 'rb') as f:
+                                        file_bytes = f.read()
+                                    print(f"📄 FILE DEBUG: Loaded uploaded file: {len(file_bytes)} bytes from {file_path}")
+                                    break
+                        
+                        if file_bytes is None:
                             print(f"❌ FILE DEBUG: Uploaded file not found for UUID: {file_uuid}")
                             return f"Error: Could not find uploaded file {file_id}"
                     except Exception as e:

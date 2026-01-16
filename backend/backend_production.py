@@ -1021,8 +1021,19 @@ Read-Host "Press Enter to close this window"
             }
 
     # Helper function to upload to Azure Blob Storage
-    def upload_to_azure_blob(file_id: str, file_name: str, file_bytes: bytes, mime_type: str) -> str:
-        """Upload file to Azure Blob Storage and return public SAS URL."""
+    def upload_to_azure_blob(file_id: str, file_name: str, file_bytes: bytes, mime_type: str, session_id: str = None) -> str:
+        """Upload file to Azure Blob Storage and return public SAS URL.
+        
+        Args:
+            file_id: Unique file identifier
+            file_name: Original filename
+            file_bytes: File content bytes
+            mime_type: MIME type of the file
+            session_id: Optional session ID for tenant isolation (scopes blob path)
+        """
+        # Build local fallback path (session-scoped if session_id provided)
+        local_fallback = f"/uploads/{session_id}/{file_id}" if session_id else f"/uploads/{file_id}"
+        
         try:
             from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions, ContentSettings
             from azure.identity import DefaultAzureCredential
@@ -1044,13 +1055,16 @@ Read-Host "Press Enter to close this window"
                 print(f"✅ Using connection string for blob storage")
             else:
                 print(f"[WARN] No Azure Storage configuration found, returning local path")
-                return f"/uploads/{file_id}"
+                return local_fallback
             
             container_name = os.getenv('AZURE_BLOB_CONTAINER', 'a2a-files')
             
-            # Generate blob name
+            # Generate blob name with session scope for tenant isolation
             safe_file_name = file_name.replace('/', '_').replace('\\', '_')
-            blob_name = f"uploads/{file_id}/{safe_file_name}"
+            if session_id:
+                blob_name = f"uploads/{session_id}/{file_id}/{safe_file_name}"
+            else:
+                blob_name = f"uploads/{file_id}/{safe_file_name}"
             
             # Upload to blob
             blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
@@ -1101,13 +1115,22 @@ Read-Host "Press Enter to close this window"
             print(f"[ERROR] Azure Blob upload failed: {e}, falling back to local storage")
             import traceback
             traceback.print_exc()
-            return f"/uploads/{file_id}"
+            return local_fallback
 
     # Add file upload endpoint
     @app.post("/upload")
-    async def upload_file(file: UploadFile = File(...)):
-        """Upload a file and return file information for A2A processing."""
+    async def upload_file(file: UploadFile = File(...), request: Request = None):
+        """Upload a file and return file information for A2A processing.
+        
+        Supports session isolation via X-Session-ID header.
+        Files are stored in session-scoped directories.
+        """
         try:
+            # Extract session_id from header for tenant isolation
+            session_id = None
+            if request:
+                session_id = request.headers.get("X-Session-ID")
+            
             # Generate unique file ID
             file_id = str(uuid.uuid4())
             
@@ -1118,7 +1141,16 @@ Read-Host "Press Enter to close this window"
             
             # Create unique filename with extension
             filename = f"{file_id}{file_extension}"
-            file_path = UPLOADS_DIR / filename
+            
+            # Session-scoped file path
+            if session_id:
+                session_upload_dir = UPLOADS_DIR / session_id
+                session_upload_dir.mkdir(parents=True, exist_ok=True)
+                file_path = session_upload_dir / filename
+                local_uri = f"/uploads/{session_id}/{filename}"
+            else:
+                file_path = UPLOADS_DIR / filename
+                local_uri = f"/uploads/{filename}"
 
             # Read file content
             content = await file.read()
@@ -1128,14 +1160,15 @@ Read-Host "Press Enter to close this window"
             with open(file_path, "wb") as buffer:
                 buffer.write(content)
             
-            log_debug(f"File uploaded: {file.filename} -> {filename} ({len(content)} bytes)")
+            log_debug(f"File uploaded: {file.filename} -> {file_path} ({len(content)} bytes) [session: {session_id or 'none'}]")
             
-            # Upload to Azure Blob and get public SAS URL
+            # Upload to Azure Blob and get public SAS URL (session-scoped)
             blob_url = upload_to_azure_blob(
                 file_id=file_id,
                 file_name=file.filename or filename,
                 file_bytes=content,
-                mime_type=file.content_type or 'application/octet-stream'
+                mime_type=file.content_type or 'application/octet-stream',
+                session_id=session_id
             )
             
             return {
@@ -1144,7 +1177,8 @@ Read-Host "Press Enter to close this window"
                 "file_id": file_id,
                 "uri": blob_url,  # Now returns Azure Blob SAS URL
                 "size": len(content),
-                "content_type": file.content_type
+                "content_type": file.content_type,
+                "session_id": session_id
             }
             
         except Exception as e:
@@ -1156,11 +1190,21 @@ Read-Host "Press Enter to close this window"
 
     # Add voice upload endpoint with transcription
     @app.post("/upload-voice")
-    async def upload_voice(file: UploadFile = File(...)):
-        """Upload a voice recording, save as WAV, and transcribe to text using A2A document processor."""
+    async def upload_voice(file: UploadFile = File(...), request: Request = None):
+        """Upload a voice recording, save as WAV, and transcribe to text using A2A document processor.
+        
+        Supports session isolation via X-Session-ID header.
+        """
         try:
-            # Create voice recordings directory inside the backend folder
+            # Extract session_id from header for tenant isolation
+            session_id = None
+            if request:
+                session_id = request.headers.get("X-Session-ID")
+            
+            # Create voice recordings directory (session-scoped if session_id provided)
             voice_dir = BASE_DIR / "voice_recordings"
+            if session_id:
+                voice_dir = voice_dir / session_id
             voice_dir.mkdir(parents=True, exist_ok=True)
             
             # Generate unique file ID
@@ -1176,7 +1220,7 @@ Read-Host "Press Enter to close this window"
                 content = await file.read()
                 buffer.write(content)
             
-            log_debug(f"Voice file uploaded: {file.filename} -> {filename} ({len(content)} bytes)")
+            log_debug(f"Voice file uploaded: {file.filename} -> {file_path} ({len(content)} bytes) [session: {session_id or 'none'}]")
             
             # Import the document processor to handle audio transcription
             try:
