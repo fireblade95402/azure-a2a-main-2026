@@ -641,47 +641,6 @@ export function ChatPanel({ dagNodes, dagLinks, agentMode, enableInterAgentMemor
   // Track if we're in the process of creating a conversation to avoid race conditions
   const [isCreatingConversation, setIsCreatingConversation] = useState(false)
 
-  // Auto-create conversation immediately on mount (removed delay to fix race condition)
-  useEffect(() => {
-    if (DEBUG) console.log('[ChatPanel] Auto-creation useEffect triggered with conversationId:', conversationId)
-    
-    const autoCreateConversation = async () => {
-      // Only auto-create if we're using the default context and not already creating one
-      // Also skip if URL has a conv- or workflow- prefix (set by workflow designer)
-      const hasWorkflowConversation = conversationId.startsWith('conv-') || conversationId.startsWith('workflow-')
-      if (hasWorkflowConversation) {
-        if (DEBUG) console.log('[ChatPanel] Skipping auto-create - workflow conversation detected:', conversationId)
-        return
-      }
-      if (conversationId === 'frontend-chat-context' && !isCreatingConversation) {
-        try {
-          setIsCreatingConversation(true)
-          if (DEBUG) console.log('[ChatPanel] Auto-creating initial conversation...')
-          const newConversation = await createConversation()
-          if (newConversation) {
-            if (DEBUG) console.log('[ChatPanel] Auto-created conversation:', newConversation.conversation_id)
-            // Notify sidebar about the new conversation
-            notifyConversationCreated(newConversation)
-            // Redirect to the new conversation
-            const newUrl = `/?conversationId=${newConversation.conversation_id}`
-            router.replace(newUrl)
-          }
-        } catch (error) {
-          console.error('[ChatPanel] Failed to auto-create conversation:', error)
-        } finally {
-          setIsCreatingConversation(false)
-        }
-      } else {
-        if (DEBUG) console.log('[ChatPanel] Not auto-creating conversation. conversationId:', conversationId, 'isCreating:', isCreatingConversation)
-      }
-    }
-    
-    // Small delay to ensure sidebar is mounted, but much shorter to reduce race condition window
-    const timeoutId = setTimeout(autoCreateConversation, 100)
-    
-    return () => clearTimeout(timeoutId)
-  }, [conversationId, router, isCreatingConversation])
-
   // Reset messages when conversation ID changes (new chat)
   useEffect(() => {
     const loadConversationMessages = async () => {

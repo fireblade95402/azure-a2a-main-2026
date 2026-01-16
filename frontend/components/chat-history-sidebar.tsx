@@ -108,19 +108,6 @@ export function ChatHistorySidebar({ isCollapsed, onToggle }: Props) {
     loadConversations()
   }, [loadConversations])
 
-  // Refresh conversations when current conversation changes to a real UUID
-  useEffect(() => {
-    console.log('[ChatHistorySidebar] Current conversation changed:', currentConversationId)
-    
-    // If the conversation ID changes to a real UUID, refresh the conversations list
-    if (currentConversationId && currentConversationId !== 'frontend-chat-context') {
-      console.log('[ChatHistorySidebar] Real conversation detected, refreshing list')
-      // Add a small delay to ensure the conversation exists in the backend
-      setTimeout(() => {
-        loadConversations()
-      }, 200)
-    }
-  }, [currentConversationId, loadConversations])
   // Use Event Hub to listen for WebSocket events
   const { subscribe, unsubscribe } = useEventHub()
 
@@ -140,67 +127,34 @@ export function ChatHistorySidebar({ isCollapsed, onToggle }: Props) {
 
     const handleConversationCreated = (event: CustomEvent) => {
       const { conversation } = event.detail
-      console.log('[ChatHistorySidebar] Received new conversation event (frontend):', conversation)
+      console.log('[ChatHistorySidebar] Received new conversation event:', conversation)
       
-      // Simply refresh the conversations list from the backend
-      console.log('[ChatHistorySidebar] Refreshing conversations list after new conversation created')
-      setTimeout(() => {
-        loadConversations()
-      }, 100)
-    }
-
-    // Listen for backend WebSocket conversation_created events
-    const handleBackendConversationCreated = (data: any) => {
-      console.log('[ChatHistorySidebar] Received conversation_created from WebSocket:', data)
-      // Refresh the conversations list from backend
-      setTimeout(() => {
-        loadConversations()
-      }, 100)
+      // Add the conversation to the list immediately for instant feedback
+      setConversations(prev => {
+        const exists = prev.some(conv => conv.conversation_id === conversation.conversation_id)
+        if (exists) {
+          return prev
+        }
+        return [conversation, ...prev]
+      })
     }
 
     window.addEventListener('conversationTitleUpdate', handleTitleUpdate as EventListener)
     window.addEventListener('conversationCreated', handleConversationCreated as EventListener)
-    subscribe('conversation_created', handleBackendConversationCreated)
     console.log('[ChatHistorySidebar] Event listeners set up successfully')
     
     return () => {
       console.log('[ChatHistorySidebar] Cleaning up event listeners')
       window.removeEventListener('conversationTitleUpdate', handleTitleUpdate as EventListener)
       window.removeEventListener('conversationCreated', handleConversationCreated as EventListener)
-      unsubscribe('conversation_created', handleBackendConversationCreated)
     }
-  }, [subscribe, unsubscribe, loadConversations])
+  }, [])
 
-  const handleNewChat = useCallback(async () => {
-    try {
-      const conversation = await createConversation()
-      if (conversation) {
-        // Add the new conversation to the list with a default name
-        const conversationWithName = {
-          ...conversation,
-          name: conversation.name || `New Chat ${new Date().toLocaleTimeString()}`
-        }
-        
-        // Update local state immediately for better UX (check for duplicates)
-        setConversations(prev => {
-          const exists = prev.some(conv => conv.conversation_id === conversation.conversation_id)
-          if (exists) {
-            console.log('[ChatHistorySidebar] Conversation already exists in handleNewChat')
-            return prev
-          }
-          return [conversationWithName, ...prev]
-        })
-        
-        // Navigate to the new conversation
-        router.push(`/?conversationId=${conversation.conversation_id}`)
-        console.log("[ChatHistorySidebar] Created new chat with ID:", conversation.conversation_id)
-      } else {
-        setError("Failed to create new conversation")
-      }
-    } catch (err) {
-      setError("Failed to create new conversation")
-      console.error("Error creating conversation:", err)
-    }
+  const handleNewChat = useCallback(() => {
+    // Just navigate to home - no conversationId
+    // This will show a blank chat, and a conversation will be created on first message
+    console.log("[ChatHistorySidebar] Starting new chat (clearing conversation)")
+    router.push("/")
   }, [router])
 
   const handleConversationClick = useCallback((conversationId: string) => {
