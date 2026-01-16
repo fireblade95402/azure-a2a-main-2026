@@ -45,8 +45,13 @@ export function ConnectedUsers() {
   // Handle real-time user list updates from WebSocket
   const handleUserListUpdate = useCallback((eventData: any) => {
     console.log("[ConnectedUsers] Real-time user list update:", eventData)
+    console.log("[ConnectedUsers] Active users data:", eventData.data?.active_users)
+    console.log("[ConnectedUsers] Total active:", eventData.data?.total_active)
     if (eventData.data?.active_users) {
       setUsers(eventData.data.active_users)
+      console.log("[ConnectedUsers] Updated users state with", eventData.data.active_users.length, "users")
+    } else {
+      console.warn("[ConnectedUsers] Received user_list_update but no active_users data!")
     }
   }, [])
 
