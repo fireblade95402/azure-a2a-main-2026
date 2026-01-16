@@ -114,6 +114,7 @@ export class WebSocketClient {
           
           // Add authentication token if available
           const token = sessionStorage.getItem('auth_token');
+          console.log('[WebSocket] Auth token present:', !!token, token ? `(${token.substring(0, 20)}...)` : '(none)');
           if (token) {
             params.push(`token=${encodeURIComponent(token)}`);
           }
@@ -121,6 +122,7 @@ export class WebSocketClient {
           // Add tenant ID (session ID) for multi-tenancy isolation
           const { getOrCreateSessionId } = await import('./session');
           const tenantId = getOrCreateSessionId();
+          console.log('[WebSocket] Tenant ID:', tenantId);
           if (tenantId) {
             params.push(`tenantId=${encodeURIComponent(tenantId)}`);
           }
@@ -129,6 +131,7 @@ export class WebSocketClient {
             const separator = wsUrl.includes('?') ? '&' : '?';
             wsUrl = `${wsUrl}${separator}${params.join('&')}`;
           }
+          console.log('[WebSocket] Connecting with URL params:', params.length, 'params');
         }
         
         this.websocket = new WebSocket(wsUrl);
