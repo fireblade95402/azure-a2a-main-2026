@@ -1895,7 +1895,7 @@ export function ChatPanel({ dagNodes, dagLinks, agentMode, enableInterAgentMemor
               return (
                 <div
                   key={`${message.id}-${index}`}
-                  className={`flex gap-3 items-start ${message.role === "user" ? "justify-end" : ""}`}
+                  className={`flex gap-3 ${message.role === "user" ? "justify-end" : "items-start"}`}
                 >
                   {message.role === "assistant" && (
                     <div className="h-8 w-8 flex-shrink-0 bg-blue-100 rounded-full flex items-center justify-center">
@@ -1906,10 +1906,11 @@ export function ChatPanel({ dagNodes, dagLinks, agentMode, enableInterAgentMemor
                     {message.role === "user" && message.username && (
                       <p className="text-xs text-muted-foreground mb-1">{message.username}</p>
                     )}
-                    <div
-                      className={`rounded-lg p-3 max-w-md ${message.role === "user" ? "bg-slate-700 text-white" : "bg-muted"
-                        }`}
-                    >
+                    <div className={`flex gap-3 ${message.role === "user" ? "flex-row-reverse" : ""}`}>
+                      <div
+                        className={`rounded-lg p-3 max-w-md ${message.role === "user" ? "bg-slate-700 text-white" : "bg-muted"
+                          }`}
+                      >
                       {message.attachments && message.attachments.length > 0 && (
                         <div className="flex flex-col gap-3 mb-3">
                           {message.attachments.map((attachment, attachmentIndex) => {
@@ -2069,6 +2070,18 @@ export function ChatPanel({ dagNodes, dagLinks, agentMode, enableInterAgentMemor
                         </div>
                       )}
                     </div>
+                    {message.role === "user" && (() => {
+                      const { bgColor, iconColor } = getAvatarStyles(message.userColor)
+                      return (
+                        <div 
+                          className="h-8 w-8 flex-shrink-0 rounded-full flex items-center justify-center"
+                          style={{ backgroundColor: bgColor }}
+                        >
+                          <User size={18} style={{ color: iconColor }} />
+                        </div>
+                      )
+                    })()}
+                  </div>
                     {message.role === "assistant" && (
                       <div className="flex items-center justify-between mt-2 w-full">
                         <p className="text-xs text-muted-foreground">{message.agent || 'Assistant'}</p>
@@ -2127,17 +2140,6 @@ export function ChatPanel({ dagNodes, dagLinks, agentMode, enableInterAgentMemor
                       </div>
                     )}
                   </div>
-                  {message.role === "user" && (() => {
-                    const { bgColor, iconColor } = getAvatarStyles(message.userColor)
-                    return (
-                      <div 
-                        className="h-8 w-8 flex-shrink-0 rounded-full flex items-center justify-center"
-                        style={{ backgroundColor: bgColor }}
-                      >
-                        <User size={18} style={{ color: iconColor }} />
-                      </div>
-                    )
-                  })()}
                 </div>
               )
             })}

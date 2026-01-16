@@ -577,8 +577,8 @@ export function AgentNetwork({ registeredAgents, isCollapsed, onToggle, agentMod
               <CardHeader className="p-2 pt-0 md:p-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <ShieldCheck className="text-primary" />
-                    <CardTitle>Host Agent</CardTitle>
+                    <ShieldCheck className="text-primary h-4 w-4" />
+                    <CardTitle className="text-base">Host Agent</CardTitle>
                   </div>
                   <Dialog open={isSystemPromptDialogOpen} onOpenChange={setIsSystemPromptDialogOpen}>
                     <DialogTrigger asChild>
