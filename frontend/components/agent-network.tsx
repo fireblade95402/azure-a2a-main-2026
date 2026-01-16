@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils"
 import { useState, useEffect, useCallback, useRef } from "react"
 import { useEventHub } from "@/contexts/event-hub-context"
 import { useSearchParams } from "next/navigation"
+import { getOrCreateSessionId } from "@/lib/session"
 
 type Agent = {
   name: string
@@ -162,7 +163,7 @@ export function AgentNetwork({ registeredAgents, isCollapsed, onToggle, agentMod
   const statusClearTimeoutsRef = useState<Map<string, NodeJS.Timeout>>(new Map())[0]
   
   // Use existing EventHub context instead of creating new WebSocket client
-  const { subscribe, unsubscribe, isConnected } = useEventHub()
+  const { subscribe, unsubscribe, isConnected, emit } = useEventHub()
   
   // Use ref for registeredAgents to avoid recreating callback on every agent list update
   const registeredAgentsRef = useRef<Agent[]>(registeredAgents)
@@ -527,32 +528,40 @@ export function AgentNetwork({ registeredAgents, isCollapsed, onToggle, agentMod
   }
 
   const handleRemoveAgent = async (agentName: string) => {
-    if (!confirm(`Are you sure you want to remove ${agentName}? This will unregister the agent from the host.`)) {
+    // Find the agent object to get its endpoint URL
+    const agent = registeredAgents.find(a => a.name === agentName)
+    if (!agent || !agent.url) {
+      console.error('Agent not found or missing URL:', agentName)
+      alert('Error: Could not find agent endpoint')
+      return
+    }
+
+    if (!confirm(`Are you sure you want to remove ${agentName}? This will disable the agent for your session.`)) {
       return
     }
 
     try {
+      const sessionId = getOrCreateSessionId()
       const baseUrl = process.env.NEXT_PUBLIC_A2A_API_URL || 'http://localhost:12000'
-      const response = await fetch(`${baseUrl}/agent/unregister`, {
+      
+      const response = await fetch(`${baseUrl}/agents/session/disable`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ agentName }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId, agent_url: agent.url })
       })
 
-      const data = await response.json()
-
-      if (data.success) {
-        console.log('Agent removed successfully:', agentName)
-        // The UI will update automatically via WebSocket agent registry sync
+      if (response.ok) {
+        console.log('Agent disabled successfully:', agentName)
+        // Emit event to update UI (AgentNetwork will handle removal from registeredAgents)
+        emit('session_agent_disabled', { agent_url: agent.url })
       } else {
-        console.error('Failed to remove agent:', data.message)
-        alert('Failed to remove agent: ' + data.message)
+        const data = await response.json()
+        console.error('Failed to disable agent:', data.message)
+        alert('Failed to disable agent: ' + data.message)
       }
     } catch (error) {
-      console.error('Error removing agent:', error)
-      alert('Error removing agent: ' + error)
+      console.error('Error disabling agent:', error)
+      alert('Error disabling agent: ' + error)
     }
   }
 
