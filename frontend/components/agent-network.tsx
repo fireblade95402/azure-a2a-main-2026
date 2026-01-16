@@ -26,6 +26,7 @@ type Agent = {
   name: string
   description?: string
   url?: string
+  endpoint?: string  // Added for session-scoped agents
   version?: string
   iconUrl?: string | null
   provider?: any
@@ -530,8 +531,10 @@ export function AgentNetwork({ registeredAgents, isCollapsed, onToggle, agentMod
   const handleRemoveAgent = async (agentName: string) => {
     // Find the agent object to get its endpoint URL
     const agent = registeredAgents.find(a => a.name === agentName)
-    if (!agent || !agent.url) {
-      console.error('Agent not found or missing URL:', agentName)
+    const agentUrl = agent?.endpoint || agent?.url
+    
+    if (!agent || !agentUrl) {
+      console.error('Agent not found or missing endpoint:', agentName, agent)
       alert('Error: Could not find agent endpoint')
       return
     }
@@ -547,13 +550,13 @@ export function AgentNetwork({ registeredAgents, isCollapsed, onToggle, agentMod
       const response = await fetch(`${baseUrl}/agents/session/disable`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: sessionId, agent_url: agent.url })
+        body: JSON.stringify({ session_id: sessionId, agent_url: agentUrl })
       })
 
       if (response.ok) {
         console.log('Agent disabled successfully:', agentName)
         // Emit event to update UI (AgentNetwork will handle removal from registeredAgents)
-        emit('session_agent_disabled', { agent_url: agent.url })
+        emit('session_agent_disabled', { agent_url: agentUrl })
       } else {
         const data = await response.json()
         console.error('Failed to disable agent:', data.message)
