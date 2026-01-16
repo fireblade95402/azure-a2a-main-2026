@@ -6,7 +6,7 @@ import signal
 import sys
 import time
 import logging
-from service.websocket_server import start_websocket_server
+from service.websocket_server import start_websocket_server, set_auth_service
 
 # Configure logging to output to stdout with immediate flushing
 logging.basicConfig(
@@ -30,6 +30,13 @@ def main():
     print("🚀 Starting WebSocket server with periodic sync...", flush=True)
     
     try:
+        # Initialize AuthService for WebSocket authentication
+        logger.info("📝 Initializing AuthService for WebSocket authentication...")
+        from backend_production import AuthService
+        auth_service_instance = AuthService()
+        set_auth_service(auth_service_instance)
+        logger.info("✅ AuthService initialized successfully")
+        
         # Start server (includes 15-second periodic sync)
         server = start_websocket_server(host='0.0.0.0', port=8080)
         logger.info("✅ WebSocket server started successfully")
