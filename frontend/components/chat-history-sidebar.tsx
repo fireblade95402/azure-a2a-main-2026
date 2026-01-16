@@ -189,7 +189,6 @@ export function ChatHistorySidebar({ isCollapsed, onToggle }: Props) {
       <div className={cn("flex h-full flex-col bg-background transition-all duration-300")}>
         <div className="flex h-16 items-center justify-between p-2">
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            {!isCollapsed && <span className="font-semibold text-lg">Chat History</span>}
           </div>
           <div className="flex items-center gap-2">
             {currentUser ? (
@@ -240,6 +239,13 @@ export function ChatHistorySidebar({ isCollapsed, onToggle }: Props) {
               <MessageSquarePlus size={16} className="mr-2" />
               New Chat
             </Button>
+          </div>
+        )}
+        
+        {/* Chat History Label */}
+        {!isCollapsed && (
+          <div className="px-2 pb-2">
+            <span className="text-sm font-medium text-muted-foreground">Chat History</span>
           </div>
         )}
         
