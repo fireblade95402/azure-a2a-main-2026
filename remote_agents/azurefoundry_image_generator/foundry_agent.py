@@ -287,7 +287,7 @@ For new image generation:
         tools.append(generate_image_tool)
 
         try:
-            bing_connection = project_client.connections.get(name="agentbing")
+            bing_connection = project_client.connections.get(name=os.getenv("AZURE_BING_CONNECTION_NAME", ""))
             bing = BingGroundingTool(connection_id=bing_connection.id)
             tools.extend(bing.definitions)
             logger.info("Added Bing search capability for reference gathering")
