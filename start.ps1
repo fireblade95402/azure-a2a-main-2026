@@ -94,10 +94,11 @@ $selectedAgents = @($selectedServices | Where-Object { $_ -ne "backend" -and $_ 
 
 # Start Backend if selected
 if ($selectedServices -contains "backend") {
-    Write-Host "Starting Backend (FastAPI)..." -ForegroundColor Green
+    Write-Host "Starting Backend (FastAPI) + Websocket Server..." -ForegroundColor Green
     $backendPath = Join-Path $baseDir "backend"
+    Start-Process pwsh -ArgumentList "-NoExit", "-Command", "cd '$backendPath'; Write-Host 'Starting Websocket Server...'; python.exe start_websocket.py" -WindowStyle Normal
     Start-Process pwsh -ArgumentList "-NoExit", "-Command", "cd '$backendPath'; Write-Host 'Starting Backend...'; python.exe backend_production.py" -WindowStyle Normal
-    Write-Host "✅ Backend started in new window" -ForegroundColor Green
+    Write-Host "✅ Backend started in new windows" -ForegroundColor Green
     Start-Sleep -Milliseconds 1000
     Write-Host ""
 }
