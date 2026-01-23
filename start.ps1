@@ -96,6 +96,48 @@ $selectedAgents = @($selectedServices | Where-Object { $_ -ne "backend" -and $_ 
 # Start Backend if selected
 if ($selectedServices -contains "backend") {
     Write-Host "Starting Backend (FastAPI) + Websocket Server..." -ForegroundColor Green
+    
+    # Enable public network access on Azure Storage Account if configured
+    # Read storage account name from .env file
+    $envPath = Join-Path $baseDir ".env"
+    $storageAccountName = $null
+    
+    if (Test-Path $envPath) {
+        try {
+            $envContent = Get-Content $envPath -Raw
+            $storageMatch = $envContent | Select-String 'AZURE_STORAGE_ACCOUNT_NAME="?([^"]+)"?' -AllMatches
+            if ($storageMatch -and $storageMatch.Matches.Groups.Count -gt 1) {
+                $storageAccountName = $storageMatch.Matches.Groups[1].Value
+            }
+        } catch {
+            Write-Host "⚠️  Could not read storage account from .env" -ForegroundColor Yellow
+        }
+    }
+    
+    if ($storageAccountName) {
+        Write-Host "🔐 Configuring Azure Storage Account for public access..." -ForegroundColor Cyan
+        try {
+            # Find the resource group that contains this storage account
+            $resourceGroup = az storage account list --query "[?name=='$storageAccountName'].resourceGroup" -o tsv 2>$null
+            
+            if ($resourceGroup) {
+                az storage account update -n $storageAccountName -g $resourceGroup --public-network-access Enabled 2>$null | Out-Null
+                $publicAccess = az storage account show -n $storageAccountName -g $resourceGroup --query "publicNetworkAccess" -o tsv 2>$null
+                if ($publicAccess -eq "Enabled") {
+                    Write-Host "✅ Azure Storage Account public access: Enabled ($storageAccountName)" -ForegroundColor Green
+                } else {
+                    Write-Host "⚠️  Azure Storage Account public access status: $publicAccess" -ForegroundColor Yellow
+                }
+            } else {
+                Write-Host "⚠️  Storage account '$storageAccountName' not found in Azure" -ForegroundColor Yellow
+            }
+        } catch {
+            Write-Host "⚠️  Could not update Azure Storage Account access (this is optional)" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "⚠️  AZURE_STORAGE_ACCOUNT_NAME not configured in .env (skipping storage setup)" -ForegroundColor Yellow
+    }
+    
     $backendPath = Join-Path $baseDir "backend"
     Start-Process pwsh -ArgumentList "-NoExit", "-Command", "cd '$backendPath'; Write-Host 'Starting Websocket Server...'; python.exe start_websocket.py" -WindowStyle Normal
     Start-Process pwsh -ArgumentList "-NoExit", "-Command", "cd '$backendPath'; Write-Host 'Starting Backend...'; python.exe backend_production.py" -WindowStyle Normal
