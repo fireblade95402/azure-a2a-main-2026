@@ -82,7 +82,7 @@ except ImportError:
 # Updated ports to avoid conflicts with other agents
 DEFAULT_HOST = _resolve_default_host()
 DEFAULT_PORT = _resolve_default_port()  # Image generator agent A2A port
-DEFAULT_UI_PORT = 9102  # Image generator agent UI port
+DEFAULT_UI_PORT = 9112  # Image generator agent UI port
 
 HOST_AGENT_URL = _normalize_env_value(get_host_agent_url())
 

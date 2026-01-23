@@ -17,7 +17,8 @@ $services = @(
     "azurefoundry_fraud",
     "azurefoundry_image_analysis",
     "azurefoundry_image_generator",
-    "azurefoundry_legal"
+    "azurefoundry_legal",
+    "azurefoundry_SN"
 )
 
 # Interactive service selection menu

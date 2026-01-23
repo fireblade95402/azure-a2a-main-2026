@@ -47,7 +47,7 @@ import base64
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Optional, Dict, List, Any, Tuple
+from typing import Optional, Dict, List, Any, Tuple, Union
 from datetime import datetime, timedelta
 
 from azure.ai.agents import AgentsClient
@@ -55,7 +55,7 @@ from azure.ai.agents.models import Agent, ThreadMessage, ThreadRun, AgentThread,
 from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential
 import glob
-from openai import OpenAI
+from openai import AzureOpenAI, OpenAI
 from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions
 from azure.core.credentials import AzureNamedKeyCredential, AzureSasCredential
 from a2a.types import Part, DataPart
@@ -89,33 +89,56 @@ class FoundryImageGeneratorAgent:
         self._file_search_tool = None  # Cache the file search tool
         self._agents_client = None  # Cache the agents client
         self._project_client = None  # Cache the project client
-        self._openai_client: Optional[OpenAI] = None
+        self._openai_client: Optional[Union[OpenAI, AzureOpenAI]] = None
         self._blob_service_client: Optional[BlobServiceClient] = None
         self._latest_artifacts: List[Dict[str, Any]] = []
         self._pending_file_refs_by_thread: Dict[str, List[Dict[str, Any]]] = {}
-        self.last_token_usage: Optional[Dict[str, int]] = None  # Store token usage from last run
 
     def _get_blob_service_client(self) -> Optional[BlobServiceClient]:
-        """Return a BlobServiceClient if Azure storage is configured and forced."""
+        """Return a BlobServiceClient using managed identity authentication (Azure best practice)."""
         force_blob = os.getenv("FORCE_AZURE_BLOB", "false").lower() == "true"
         if not force_blob:
             return None
         if self._blob_service_client is not None:
             return self._blob_service_client
 
-        connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-        if not connection_string:
-            logger.error("AZURE_STORAGE_CONNECTION_STRING must be set when FORCE_AZURE_BLOB=true")
-            raise RuntimeError("Missing AZURE_STORAGE_CONNECTION_STRING for blob uploads")
+        # Get storage account URL - required for managed identity authentication
+        storage_account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
+        storage_account_name = os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
+        
+        # Build URL if only account name is provided
+        if not storage_account_url and storage_account_name:
+            storage_account_url = f"https://{storage_account_name}.blob.core.windows.net"
+        
+        if not storage_account_url:
+            # Fallback to connection string for backward compatibility
+            connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+            if connection_string:
+                logger.warning("Using connection string authentication for blob storage. Consider migrating to managed identity.")
+                try:
+                    self._blob_service_client = BlobServiceClient.from_connection_string(
+                        connection_string,
+                        api_version="2023-11-03",
+                    )
+                    return self._blob_service_client
+                except Exception as e:
+                    logger.error(f"Failed to create BlobServiceClient with connection string: {e}")
+                    raise
+            else:
+                logger.error("Either AZURE_STORAGE_ACCOUNT_URL/AZURE_STORAGE_ACCOUNT_NAME or AZURE_STORAGE_CONNECTION_STRING must be set when FORCE_AZURE_BLOB=true")
+                raise RuntimeError("Missing Azure Storage configuration for blob uploads")
 
         try:
-            self._blob_service_client = BlobServiceClient.from_connection_string(
-                connection_string,
+            # Use managed identity authentication (recommended)
+            logger.info("Using managed identity authentication for Azure Blob Storage")
+            self._blob_service_client = BlobServiceClient(
+                account_url=storage_account_url,
+                credential=self.credential,  # Uses DefaultAzureCredential
                 api_version="2023-11-03",
             )
             return self._blob_service_client
         except Exception as e:
-            logger.error(f"Failed to create BlobServiceClient: {e}")
+            logger.error(f"Failed to create BlobServiceClient with managed identity: {e}")
             raise
         
     def _get_client(self) -> AgentsClient:
@@ -272,7 +295,7 @@ For new image generation:
                         },
                         "model": {
                             "type": "string", 
-                            "description": "OpenAI model name (typically 'gpt-image-1')."
+                            "description": "Azure OpenAI deployment name (typically 'gpt-image-1' or 'dalle3')."
                         },
                         "input_fidelity": {
                             "type": "string", 
@@ -1208,21 +1231,117 @@ Always validate the prompt for safety before invoking the tool.
             # Final fallback
             return f"Executing tool: {tool_type}"
 
-    def _get_openai_client(self) -> OpenAI:
-        """Lazy-create an OpenAI client using the project environment variables."""
+    def _get_openai_client(self) -> Union[OpenAI, AzureOpenAI]:
+        """Lazy-create an AzureOpenAI client using Azure AI Foundry environment variables.
+        
+        Supports both API key and managed identity authentication for Azure best practices.
+        """
         if self._openai_client is None:
-            api_key = os.getenv("OPENAI_API_KEY")
-            if not api_key:
-                raise RuntimeError("OPENAI_API_KEY environment variable is required for image generation")
-            self._openai_client = OpenAI(api_key=api_key)
+            endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+            api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
+            
+            if not endpoint:
+                raise RuntimeError("AZURE_OPENAI_ENDPOINT environment variable is required for image generation")
+            
+            # Try managed identity first (recommended for Azure environments)
+            api_key = os.getenv("AZURE_OPENAI_API_KEY")
+            if api_key:
+                logger.info("Using API key authentication for Azure OpenAI")
+                self._openai_client = AzureOpenAI(
+                    api_key=api_key,
+                    azure_endpoint=endpoint,
+                    api_version=api_version
+                )
+            else:
+                # Use managed identity authentication
+                logger.info("Using managed identity authentication for Azure OpenAI")
+                try:
+                    from azure.identity import get_bearer_token_provider
+                    token_provider = get_bearer_token_provider(
+                        self.credential, 
+                        "https://cognitiveservices.azure.com/.default"
+                    )
+                    # Note: For AzureOpenAI with managed identity, we need to use the OpenAI client
+                    # with a token provider, not the AzureOpenAI client directly
+                    self._openai_client = OpenAI(
+                        base_url=f"{endpoint.rstrip('/')}/openai/v1/",
+                        api_key=token_provider,
+                    )
+                except ImportError:
+                    raise RuntimeError("azure-identity package required for managed identity authentication. Install with: pip install azure-identity")
+                except Exception as e:
+                    raise RuntimeError(f"Failed to authenticate with managed identity: {e}")
+                    
         return self._openai_client
 
+    def _normalize_image_size(self, requested_size: str) -> str:
+        """Normalize requested image size to supported Azure OpenAI sizes.
+        
+        Azure OpenAI supports: 1024x1024, 1024x1536, 1536x1024, and auto
+        Maps common sizes to the closest supported option.
+        """
+        supported_sizes = ["1024x1024", "1024x1536", "1536x1024", "auto"]
+        
+        if not requested_size or requested_size == "auto":
+            return "1024x1024"  # Default to square
+        
+        requested_size_lower = str(requested_size).lower().strip()
+        
+        # If already supported, use it
+        if requested_size_lower in supported_sizes:
+            return requested_size_lower
+        
+        # Map common sizes to closest supported size
+        size_mappings = {
+            "512x512": "1024x1024",
+            "1024x768": "1024x1024",
+            "768x1024": "1024x1536",
+            "1792x1024": "1536x1024",  # Common DALL-E 3 size -> closest match
+            "1024x1792": "1024x1536",  # Another common size
+            "2048x2048": "1024x1024",
+            "1600x1200": "1536x1024",
+            "1200x1600": "1024x1536",
+        }
+        
+        mapped_size = size_mappings.get(requested_size_lower)
+        if mapped_size:
+            logger.info(
+                "Normalizing unsupported image size '%s' to supported size '%s'",
+                requested_size,
+                mapped_size,
+            )
+            return mapped_size
+        
+        # Fallback: parse dimensions and find closest supported size
+        try:
+            parts = requested_size_lower.split("x")
+            if len(parts) == 2:
+                width = int(parts[0])
+                height = int(parts[1])
+                
+                # Find closest supported size based on aspect ratio and total pixels
+                if width == height:
+                    return "1024x1024"
+                elif width > height:
+                    return "1536x1024"  # Landscape
+                else:
+                    return "1024x1536"  # Portrait
+        except (ValueError, IndexError):
+            pass
+        
+        logger.warning(
+            "Could not normalize image size '%s', using default 1024x1024",
+            requested_size,
+        )
+        return "1024x1024"
+
     def _generate_image_via_openai(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Call the OpenAI Responses API and return metadata about the generated image."""
+        """Call the Azure OpenAI image generation API and return metadata about the generated image."""
         client = self._get_openai_client()
         prompt = payload.get("prompt")
         style = payload.get("style")
-        size = payload.get("size", "1024x1024")
+        requested_size = payload.get("size", "1024x1024")
+        size = self._normalize_image_size(requested_size)
         n_images = int(payload.get("n", 1))
         
         # SAFETY: Force n=1 for agent-to-agent mode to prevent multiple image generation
@@ -1231,13 +1350,18 @@ Always validate the prompt for safety before invoking the tool.
             logger.warning(f"Agent requested n={n_images} images, forcing n=1 for agent-to-agent mode")
             n_images = 1
 
+        # Use Azure deployment name from environment or default to gpt-image-1
         requested_model_raw = payload.get("model")
-        if isinstance(requested_model_raw, str) and requested_model_raw.strip() and requested_model_raw.strip() != "gpt-image-1":
+        model_to_use = os.getenv("AZURE_OPENAI_IMAGE_DEPLOYMENT_NAME", "gpt-image-1")
+        
+        if isinstance(requested_model_raw, str) and requested_model_raw.strip():
             logger.info(
-                "Ignoring requested image model '%s'; using 'gpt-image-1' for all generations",
+                "Using configured Azure deployment '%s' for image generation (requested: %s)",
+                model_to_use,
                 requested_model_raw.strip(),
             )
-        model_to_use = "gpt-image-1"
+        else:
+            logger.info("Using default Azure deployment '%s' for image generation", model_to_use)
 
         if not prompt:
             raise ValueError("Image generation payload must include a 'prompt'")
@@ -1428,7 +1552,7 @@ Always validate the prompt for safety before invoking the tool.
 
     def _generate_image_edit(
         self,
-        client: OpenAI,
+        client: Union[OpenAI, AzureOpenAI],
         model: str,
         prompt: str,
         image_url: Optional[str],
@@ -1727,11 +1851,10 @@ Always validate the prompt for safety before invoking the tool.
             image_file_handles.append(base_handle)
 
             if overlay_bytes:
+                logger.warning("Overlay images are not supported by Azure OpenAI images.edit API - overlay will be ignored")
                 overlay_png = self._ensure_png(overlay_bytes)
                 overlay_file_path = self._write_temp_png(overlay_png)
                 temp_paths.append(overlay_file_path)
-                overlay_handle = open(overlay_file_path, "rb")
-                image_file_handles.append(overlay_handle)
 
             if mask_bytes:
                 mask_bytes = self._ensure_png(mask_bytes)
@@ -1747,11 +1870,11 @@ Always validate the prompt for safety before invoking the tool.
             if size:
                 edit_kwargs["size"] = size
 
-            edit_kwargs["image"] = image_file_handles
+            # Azure OpenAI images.edit expects a single file handle, not a list
+            edit_kwargs["image"] = base_handle
             logger.info(
-                "Invoking OpenAI images.edit | has_mask=%s | image_handles=%d | kwargs_keys=%s",
+                "Invoking Azure OpenAI images.edit | has_mask=%s | kwargs_keys=%s",
                 "mask" in edit_kwargs,
-                len(image_file_handles),
                 [key for key in edit_kwargs.keys() if key != "prompt"],
             )
             edit_response = client.images.edit(**edit_kwargs)
@@ -2050,6 +2173,8 @@ Always validate the prompt for safety before invoking the tool.
 
             if sas_token is None and self._blob_service_client is not None:
                 try:
+                    # Use user delegation key for managed identity authentication (recommended)
+                    logger.info("Generating SAS token using managed identity user delegation key")
                     delegation_key = self._blob_service_client.get_user_delegation_key(
                         key_start_time=datetime.utcnow() - timedelta(minutes=5),
                         key_expiry_time=datetime.utcnow() + timedelta(minutes=sas_duration_minutes),
@@ -2063,8 +2188,10 @@ Always validate the prompt for safety before invoking the tool.
                         expiry=datetime.utcnow() + timedelta(minutes=sas_duration_minutes),
                         version="2023-11-03",
                     )
+                    logger.info("Successfully generated SAS token using managed identity")
                 except Exception as ude_err:
-                    logger.warning(f"Failed to generate user delegation SAS: {ude_err}")
+                    logger.warning(f"Failed to generate user delegation SAS with managed identity: {ude_err}")
+                    logger.warning("Ensure the identity has 'Storage Blob Delegator' role assignment")
 
             if sas_token:
                 base_url = blob_client.get_blob_client(container=container_name, blob=blob_name).url
@@ -2072,7 +2199,11 @@ Always validate the prompt for safety before invoking the tool.
                 separator = '&' if '?' in base_url else '?'
                 return f"{base_url}{separator}{token}"
 
-            raise RuntimeError("Unable to generate SAS token for blob upload; verify storage credentials")
+            raise RuntimeError(
+                "Unable to generate SAS token for blob upload. For managed identity: "
+                "ensure the identity has 'Storage Blob Data Contributor' and 'Storage Blob Delegator' roles. "
+                "For key-based auth: verify AZURE_STORAGE_CONNECTION_STRING is correct."
+            )
         except Exception as e:
             logger.error(f"Failed to upload {file_path} to blob storage: {e}")
             return None
