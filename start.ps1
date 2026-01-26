@@ -115,18 +115,26 @@ if ($selectedServices -contains "backend") {
     }
     
     if ($storageAccountName) {
-        Write-Host "🔐 Configuring Azure Storage Account for public access..." -ForegroundColor Cyan
+        Write-Host "🔐 Checking Azure Storage Account public access..." -ForegroundColor Cyan
         try {
             # Find the resource group that contains this storage account
             $resourceGroup = az storage account list --query "[?name=='$storageAccountName'].resourceGroup" -o tsv 2>$null
             
             if ($resourceGroup) {
-                az storage account update -n $storageAccountName -g $resourceGroup --public-network-access Enabled 2>$null | Out-Null
+                # Check current public access status
                 $publicAccess = az storage account show -n $storageAccountName -g $resourceGroup --query "publicNetworkAccess" -o tsv 2>$null
+                
                 if ($publicAccess -eq "Enabled") {
-                    Write-Host "✅ Azure Storage Account public access: Enabled ($storageAccountName)" -ForegroundColor Green
+                    Write-Host "✅ Azure Storage Account public access: Already enabled ($storageAccountName)" -ForegroundColor Green
                 } else {
-                    Write-Host "⚠️  Azure Storage Account public access status: $publicAccess" -ForegroundColor Yellow
+                    Write-Host "🔧 Enabling public access on storage account..." -ForegroundColor Cyan
+                    az storage account update -n $storageAccountName -g $resourceGroup --public-network-access Enabled 2>$null | Out-Null
+                    $publicAccess = az storage account show -n $storageAccountName -g $resourceGroup --query "publicNetworkAccess" -o tsv 2>$null
+                    if ($publicAccess -eq "Enabled") {
+                        Write-Host "✅ Azure Storage Account public access: Enabled ($storageAccountName)" -ForegroundColor Green
+                    } else {
+                        Write-Host "⚠️  Azure Storage Account public access status: $publicAccess" -ForegroundColor Yellow
+                    }
                 }
             } else {
                 Write-Host "⚠️  Storage account '$storageAccountName' not found in Azure" -ForegroundColor Yellow

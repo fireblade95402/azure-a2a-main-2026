@@ -17,6 +17,7 @@ from azure.search.documents.indexes.models import (
 )
 import time
 from azure.core.exceptions import ResourceNotFoundError
+from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 import openai
 import sys
 
@@ -64,13 +65,27 @@ class A2AMemoryService:
             )
             
             # Initialize other clients only if Azure OpenAI config is available
-            if azure_openai_endpoint and azure_openai_key and azure_openai_deployment:
-                self.openai_client = openai.AzureOpenAI(
-                    azure_endpoint=azure_openai_endpoint,
-                    api_key=azure_openai_key,
-                    api_version="2024-02-01"
-                )
-                print(f"✅ Azure OpenAI client initialized")
+            if azure_openai_endpoint and azure_openai_deployment:
+                # Use managed identity if no API key is provided
+                if azure_openai_key:
+                    self.openai_client = openai.AzureOpenAI(
+                        azure_endpoint=azure_openai_endpoint,
+                        api_key=azure_openai_key,
+                        api_version="2024-02-01"
+                    )
+                    print(f"✅ Azure OpenAI client initialized with API key")
+                else:
+                    # Use managed identity / Entra ID authentication
+                    token_provider = get_bearer_token_provider(
+                        DefaultAzureCredential(),
+                        "https://cognitiveservices.azure.com/.default"
+                    )
+                    self.openai_client = openai.AzureOpenAI(
+                        azure_endpoint=azure_openai_endpoint,
+                        azure_ad_token_provider=token_provider,
+                        api_version="2024-02-01"
+                    )
+                    print(f"✅ Azure OpenAI client initialized with managed identity")
             else:
                 print(f"⚠️ Azure OpenAI not configured - embeddings disabled")
                 self.openai_client = None
