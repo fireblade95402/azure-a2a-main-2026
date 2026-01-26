@@ -1461,6 +1461,8 @@ Always validate the prompt for safety before invoking the tool.
                 b64_payload = result_payload.b64_json
             elif hasattr(result_payload, "image_base64"):
                 b64_payload = result_payload.image_base64
+            elif hasattr(result_payload, "url"):
+                entry["source_url"] = result_payload.url
 
             if b64_payload:
                 image_bytes = base64.b64decode(b64_payload)
