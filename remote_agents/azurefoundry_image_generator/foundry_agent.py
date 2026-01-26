@@ -1457,12 +1457,14 @@ Always validate the prompt for safety before invoking the tool.
                 b64_payload = result_payload.get("image_base64") or result_payload.get("b64_json")
                 if not b64_payload:
                     entry["source_url"] = result_payload.get("url")
-            elif hasattr(result_payload, "b64_json"):
-                b64_payload = result_payload.b64_json
-            elif hasattr(result_payload, "image_base64"):
-                b64_payload = result_payload.image_base64
-            elif hasattr(result_payload, "url"):
-                entry["source_url"] = result_payload.url
+            else:
+                # Check for URL first, then fall back to base64 content
+                if hasattr(result_payload, "url") and result_payload.url:
+                    entry["source_url"] = result_payload.url
+                elif hasattr(result_payload, "b64_json") and result_payload.b64_json:
+                    b64_payload = result_payload.b64_json
+                elif hasattr(result_payload, "image_base64") and result_payload.image_base64:
+                    b64_payload = result_payload.image_base64
 
             if b64_payload:
                 image_bytes = base64.b64decode(b64_payload)
