@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useVoiceRealtime } from "@/hooks/useVoiceRealtime";
+import type { VoiceMessage } from "./Dashboard";
 
 interface VoiceButtonProps {
   userId: string;
   apiUrl: string;
+  onNewMessage?: (message: VoiceMessage) => void;
 }
 
 // Simple markdown to HTML converter
@@ -26,22 +28,67 @@ function formatMarkdown(text: string): string {
     .replace(/\n/g, '<br/>');
 }
 
-export function VoiceButton({ userId, apiUrl }: VoiceButtonProps) {
+export function VoiceButton({ userId, apiUrl, onNewMessage }: VoiceButtonProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isVisible, setIsVisible] = useState(false);
+  const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastResultRef = useRef<string>("");
+  const lastTranscriptRef = useRef<string>("");
+  
+  // Clear hide timeout
+  const clearHideTimeout = useCallback(() => {
+    if (hideTimeoutRef.current) {
+      clearTimeout(hideTimeoutRef.current);
+      hideTimeoutRef.current = null;
+    }
+  }, []);
   
   const voice = useVoiceRealtime({
     apiUrl,
     userId,
     onTranscript: (text) => {
       console.log("[VoiceButton] Transcript:", text);
+      lastTranscriptRef.current = text;
     },
     onResult: (result) => {
       console.log("[VoiceButton] Result:", result);
+      lastResultRef.current = result;
     },
     onError: (error) => {
       console.error("[VoiceButton] Error:", error);
     },
   });
+  
+  // Show/hide response panel and store message when done speaking
+  useEffect(() => {
+    // Show panel when we have a result and are speaking
+    if (voice.result && voice.isSpeaking) {
+      setIsVisible(true);
+      clearHideTimeout();
+    }
+    
+    // When speaking finishes, start the hide timer and save the message
+    if (voice.result && !voice.isSpeaking && !voice.isProcessing && isVisible) {
+      // Save to message history
+      if (onNewMessage && voice.transcript && voice.result) {
+        onNewMessage({
+          id: crypto.randomUUID(),
+          timestamp: new Date(),
+          userQuery: voice.transcript,
+          response: voice.result,
+        });
+      }
+      
+      // Start 5-second hide timer
+      clearHideTimeout();
+      hideTimeoutRef.current = setTimeout(() => {
+        setIsVisible(false);
+        setIsExpanded(false);
+      }, 5000);
+    }
+    
+    return () => clearHideTimeout();
+  }, [voice.result, voice.isSpeaking, voice.isProcessing, voice.transcript, isVisible, onNewMessage, clearHideTimeout]);
 
   const handleClick = () => {
     if (voice.isConnected) {
@@ -103,17 +150,30 @@ export function VoiceButton({ userId, apiUrl }: VoiceButtonProps) {
 
   const state = getButtonState();
   const isActive = voice.isConnected || voice.isListening || voice.isSpeaking || voice.isProcessing;
+  
+  // Show the panel if: actively processing/speaking, or visible with result, or has error
+  const showPanel = voice.error || voice.isProcessing || voice.isSpeaking || isVisible;
 
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-3 w-full px-4 sm:px-6">
       {/* Status & Transcript Display */}
-      {(voice.transcript || voice.result || voice.error) && (
+      {showPanel && (voice.transcript || voice.result || voice.error) && (
         <div 
           className={`relative bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 p-4 sm:p-5 animate-in slide-in-from-bottom-4 transition-all duration-300 w-full max-w-2xl ${
             isExpanded 
               ? 'max-h-[80vh]' 
               : 'max-h-[60vh]'
           }`}
+          onMouseEnter={clearHideTimeout}
+          onMouseLeave={() => {
+            // Restart hide timer if we're done speaking
+            if (voice.result && !voice.isSpeaking && !voice.isProcessing) {
+              hideTimeoutRef.current = setTimeout(() => {
+                setIsVisible(false);
+                setIsExpanded(false);
+              }, 3000);
+            }
+          }}
         >
           {/* Close/Minimize button */}
           {voice.result && (

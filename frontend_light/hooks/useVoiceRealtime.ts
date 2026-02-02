@@ -330,6 +330,18 @@ export function useVoiceRealtime(config: VoiceRealtimeConfig): VoiceRealtimeHook
           case "session.updated":
             console.log("[VoiceRealtime] Session ready");
             setIsListening(true);
+            
+            // Send a friendly greeting using out-of-band TTS (only on session.created)
+            if (msg.type === "session.created" && wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.send(JSON.stringify({
+                type: "response.create",
+                response: {
+                  conversation: "none",  // Out-of-band: won't affect conversation history
+                  modalities: ["audio", "text"],
+                  instructions: "Say a brief, warm greeting like: 'Hey there! How can I help you today?' Keep it natural and friendly, just 1 sentence.",
+                }
+              }));
+            }
             break;
 
           case "input_audio_buffer.speech_started":

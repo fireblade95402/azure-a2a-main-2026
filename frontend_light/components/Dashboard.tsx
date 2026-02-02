@@ -9,19 +9,33 @@ import { VoiceButton } from "./VoiceButton";
 // Get API URL for voice
 const API_BASE_URL = process.env.NEXT_PUBLIC_A2A_API_URL || "http://localhost:12000";
 
+// Message type for conversation history
+export interface VoiceMessage {
+  id: string;
+  timestamp: Date;
+  userQuery: string;
+  response: string;
+}
+
 interface DashboardProps {
   user: UserInfo | null;
   onLogout: () => void;
 }
 
-type TabType = "workflows" | "agents";
+type TabType = "workflows" | "agents" | "messages";
 
 export function Dashboard({ user, onLogout }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>("workflows");
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [messages, setMessages] = useState<VoiceMessage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Handler for new messages from VoiceButton
+  const handleNewMessage = useCallback((message: VoiceMessage) => {
+    setMessages(prev => [message, ...prev]); // Add to beginning (newest first)
+  }, []);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -181,12 +195,44 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
                 </span>
               </span>
             </button>
+
+            <button
+              onClick={() => setActiveTab("messages")}
+              className={`flex-1 sm:flex-none px-4 sm:px-6 py-3 text-sm sm:text-base font-medium border-b-2 transition-colors
+                ${
+                  activeTab === "messages"
+                    ? "border-primary-500 text-primary-600 dark:text-primary-400"
+                    : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:border-gray-300"
+                }`}
+            >
+              <span className="flex items-center justify-center gap-2">
+                <svg
+                  className="w-4 h-4 sm:w-5 sm:h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                  />
+                </svg>
+                Messages
+                {messages.length > 0 && (
+                  <span className="hidden sm:inline-flex items-center justify-center px-2 py-0.5 text-xs font-medium bg-primary-100 dark:bg-primary-900/50 text-primary-600 dark:text-primary-400 rounded-full">
+                    {messages.length}
+                  </span>
+                )}
+              </span>
+            </button>
           </nav>
         </div>
       </div>
 
       {/* Content */}
-      <main className="flex-1 px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+      <main className="flex-1 px-4 sm:px-6 lg:px-8 py-4 sm:py-6 pb-32">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <div className="flex flex-col items-center gap-3">
@@ -210,14 +256,16 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
           </div>
         ) : activeTab === "workflows" ? (
           <WorkflowsTab workflows={workflows} />
-        ) : (
+        ) : activeTab === "agents" ? (
           <AgentsTab onlineAgents={onlineAgents} offlineAgents={offlineAgents} />
+        ) : (
+          <MessagesTab messages={messages} />
         )}
       </main>
 
       {/* Voice Button */}
       {user && (
-        <VoiceButton userId={user.user_id} apiUrl={API_BASE_URL} />
+        <VoiceButton userId={user.user_id} apiUrl={API_BASE_URL} onNewMessage={handleNewMessage} />
       )}
     </div>
   );
@@ -305,6 +353,95 @@ function AgentsTab({
           </div>
         </section>
       )}
+    </div>
+  );
+}
+
+// Simple markdown to HTML converter for messages
+function formatMarkdown(text: string): string {
+  return text
+    .replace(/^### (.*$)/gm, '<h3 class="text-base font-semibold mt-3 mb-1">$1</h3>')
+    .replace(/^## (.*$)/gm, '<h2 class="text-lg font-semibold mt-4 mb-2">$1</h2>')
+    .replace(/^# (.*$)/gm, '<h1 class="text-xl font-bold mt-4 mb-2">$1</h1>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/^- (.*$)/gm, '<li class="ml-4">• $1</li>')
+    .replace(/\n\n/g, '<br/><br/>')
+    .replace(/\n/g, '<br/>');
+}
+
+function MessagesTab({ messages }: { messages: VoiceMessage[] }) {
+  if (messages.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-center">
+        <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-2xl flex items-center justify-center mb-4">
+          <svg
+            className="w-8 h-8 text-gray-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+            />
+          </svg>
+        </div>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+          No messages yet
+        </h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Start a voice conversation to see your history here
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 max-w-3xl mx-auto">
+      {messages.map((message) => (
+        <div
+          key={message.id}
+          className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden"
+        >
+          {/* User query */}
+          <div className="px-4 py-3 bg-gray-50 dark:bg-slate-900/50 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-primary-100 dark:bg-primary-900/50 rounded-full flex items-center justify-center flex-shrink-0">
+                <svg className="w-4 h-4 text-primary-600 dark:text-primary-400" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                  <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 dark:text-white">
+                  {message.userQuery}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  {new Date(message.timestamp).toLocaleTimeString()}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Response */}
+          <div className="px-4 py-4">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-green-100 dark:bg-green-900/50 rounded-full flex items-center justify-center flex-shrink-0">
+                <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <div 
+                className="flex-1 min-w-0 text-sm text-gray-700 dark:text-gray-300 prose prose-sm dark:prose-invert max-w-none"
+                dangerouslySetInnerHTML={{ __html: formatMarkdown(message.response) }}
+              />
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
