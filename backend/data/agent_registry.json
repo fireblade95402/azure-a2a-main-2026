@@ -1663,7 +1663,7 @@
     "defaultOutputModes": [
       "text"
     ],
-    "description": "A notification agent that sends SMS text messages via Twilio. Use this agent to deliver workflow results, send alerts, or notify users via SMS. Ideal as the final step in a workflow to deliver summaries or confirmations to users' phones.",
+    "description": "A notification agent powered by Azure AI Foundry that sends SMS text messages via Twilio. Use this agent to deliver workflow results, send alerts, or notify users via SMS. Ideal as the final step in a workflow to deliver summaries or confirmations to users' phones.",
     "documentationUrl": null,
     "iconUrl": null,
     "name": "Twilio SMS Agent",
@@ -1675,12 +1675,12 @@
     "signatures": null,
     "skills": [
       {
-        "description": "Send an SMS text message to a phone number. Can receive message content from previous workflow steps and deliver it via SMS.",
+        "description": "Send an SMS text message to a phone number via Twilio. Can receive message content from previous workflow steps and deliver it via SMS notification.",
         "examples": [
           "Send SMS: Your account balance is $1,234.56",
-          "Text me a summary of the analysis",
+          "Text me a summary of the results",
           "Send a notification via SMS",
-          "Message +15147715943: Hello from the workflow!"
+          "Message my phone with the workflow output"
         ],
         "id": "send_sms",
         "inputModes": null,
@@ -1697,10 +1697,10 @@
         ]
       },
       {
-        "description": "Notify a user via SMS with workflow results or important updates. Perfect for the final step in a workflow to deliver results.",
+        "description": "Notify a user via SMS with workflow results, alerts, or important updates. Ideal as the final step in a workflow to deliver results to users' phones.",
         "examples": [
           "Notify me when the task is complete",
-          "Send the final results via text",
+          "Send the final results via text message",
           "Alert the user with the summary",
           "Deliver the workflow output by SMS"
         ],
@@ -1714,12 +1714,13 @@
           "alert",
           "update",
           "result",
-          "delivery"
+          "delivery",
+          "workflow"
         ]
       }
     ],
     "supportsAuthenticatedExtendedCard": null,
-    "url": "http://localhost:8015/",
+    "url": "http://localhost:8016/",
     "version": "1.0.0"
   }
 ]

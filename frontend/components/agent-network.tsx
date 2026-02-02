@@ -187,6 +187,13 @@ export function AgentNetwork({ registeredAgents, isCollapsed, onToggle, enableIn
   const [localWorkflowGoal, setLocalWorkflowGoal] = useState("")
   const [editedWorkflow, setEditedWorkflow] = useState("")
   
+  // Track loaded workflow metadata (from catalog)
+  const [loadedWorkflowId, setLoadedWorkflowId] = useState<string | null>(null)
+  const [loadedWorkflowName, setLoadedWorkflowName] = useState("")
+  const [loadedWorkflowDescription, setLoadedWorkflowDescription] = useState("")
+  const [loadedWorkflowCategory, setLoadedWorkflowCategory] = useState("Custom")
+  const [loadedWorkflowGoal, setLoadedWorkflowGoal] = useState("")
+  
   const workflow = propWorkflow !== undefined ? propWorkflow : localWorkflow
   const setWorkflow = onWorkflowChange || setLocalWorkflow
   const workflowName = propWorkflowName !== undefined ? propWorkflowName : localWorkflowName
@@ -1035,6 +1042,18 @@ export function AgentNetwork({ registeredAgents, isCollapsed, onToggle, enableIn
                                   onWorkflowGenerated={(text) => setEditedWorkflow(text)}
                                   onWorkflowNameChange={setWorkflowName}
                                   onWorkflowGoalChange={setWorkflowGoal}
+                                  onWorkflowLoaded={(wf) => {
+                                    // Capture loaded workflow metadata
+                                    setLoadedWorkflowId(wf.id)
+                                    setLoadedWorkflowName(wf.name)
+                                    setLoadedWorkflowDescription(wf.description)
+                                    setLoadedWorkflowCategory(wf.category)
+                                    setLoadedWorkflowGoal(wf.goal)
+                                    // Also update the workflow name so it shows correctly in "Add to Session"
+                                    setWorkflowName(wf.name)
+                                    // Update the goal as well
+                                    setWorkflowGoal(wf.goal)
+                                  }}
                                   initialWorkflow={editedWorkflow}
                                   initialWorkflowName={workflowName}
                                   conversationId={currentConversationId}
@@ -1073,12 +1092,20 @@ export function AgentNetwork({ registeredAgents, isCollapsed, onToggle, enableIn
                                 onClick={async () => {
                                   if (!editedWorkflow.trim()) return
                                   
-                                  // Create new workflow object
+                                  // Use loaded workflow ID if available, otherwise generate new one
+                                  const workflowId = loadedWorkflowId || generateWorkflowId()
+                                  const workflowDesc = loadedWorkflowDescription || ""
+                                  // Use loadedWorkflowName as fallback if workflowName is empty
+                                  const finalWorkflowName = workflowName || loadedWorkflowName || "Untitled Workflow"
+                                  const finalWorkflowGoal = workflowGoal || loadedWorkflowGoal || ""
+                                  
+                                  // Create workflow object
                                   const newWorkflow = {
-                                    id: generateWorkflowId(),
+                                    id: workflowId,
                                     workflow: editedWorkflow,
-                                    name: workflowName || "Untitled Workflow",
-                                    goal: workflowGoal || ""
+                                    name: finalWorkflowName,
+                                    description: workflowDesc,
+                                    goal: finalWorkflowGoal
                                   }
                                   
                                   // Use onAddWorkflow if available (multi-workflow mode)
@@ -1089,8 +1116,13 @@ export function AgentNetwork({ registeredAgents, isCollapsed, onToggle, enableIn
                                     setWorkflow(editedWorkflow)
                                   }
                                   
-                                  // Clear the editor and close dialog
+                                  // Clear the editor, metadata, and close dialog
                                   setEditedWorkflow("")
+                                  setLoadedWorkflowId(null)
+                                  setLoadedWorkflowName("")
+                                  setLoadedWorkflowDescription("")
+                                  setLoadedWorkflowCategory("Custom")
+                                  setLoadedWorkflowGoal("")
                                   setIsWorkflowDialogOpen(false)
                                 }}
                                 disabled={!editedWorkflow.trim()}

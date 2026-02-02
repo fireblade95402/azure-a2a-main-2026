@@ -51,6 +51,7 @@ interface VisualWorkflowDesignerProps {
   onWorkflowGenerated: (workflowText: string) => void
   onWorkflowNameChange?: (name: string) => void
   onWorkflowGoalChange?: (goal: string) => void
+  onWorkflowLoaded?: (workflow: { id: string; name: string; description: string; category: string; goal: string }) => void
   initialWorkflow?: string
   initialWorkflowName?: string
   conversationId?: string // Optional: use existing conversation from chat panel
@@ -76,6 +77,7 @@ export function VisualWorkflowDesigner({
   onWorkflowGenerated,
   onWorkflowNameChange,
   onWorkflowGoalChange,
+  onWorkflowLoaded,
   initialWorkflow,
   initialWorkflowName,
   conversationId: externalConversationId
@@ -1666,6 +1668,17 @@ export function VisualWorkflowDesigner({
       onWorkflowGoalChange(template.goal || "")
     }
     
+    // NEW: Notify parent that a workflow was loaded from catalog (includes ID and metadata)
+    if (onWorkflowLoaded) {
+      onWorkflowLoaded({
+        id: template.id,
+        name: template.name || "",
+        description: template.description || "",
+        category: template.category || "Custom",
+        goal: template.goal || ""
+      })
+    }
+    
     // Small delay to ensure state is cleared
     setTimeout(() => {
       // Guard against empty/undefined steps
@@ -1772,6 +1785,13 @@ export function VisualWorkflowDesigner({
 
   // Quick save - updates existing workflow without showing dialog
   const handleQuickSave = async () => {
+    // CRITICAL FIX: Commit any pending description edits before saving
+    if (editingStepId && editingDescription) {
+      updateStepDescription(editingDescription, editingStepId)
+      // Small delay to ensure state is updated
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
+    
     if (!workflowName.trim()) {
       // No name yet - show the dialog
       setShowSaveDialog(true)
@@ -1877,13 +1897,24 @@ export function VisualWorkflowDesigner({
 
   // Save current workflow to catalog
   const handleSaveWorkflow = async () => {
+    // CRITICAL FIX: Commit any pending description edits before saving
+    if (editingStepId && editingDescription) {
+      updateStepDescription(editingDescription, editingStepId)
+      // Small delay to ensure state is updated
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
+    
     if (!workflowName.trim()) {
       alert("Please enter a workflow name")
       return
     }
     
+    // Use existing workflow ID if editing, otherwise generate new one
+    const workflowId = selectedWorkflowId || `custom-${Date.now()}`
+    console.log('[VisualWorkflowDesigner] Saving workflow with ID:', workflowId, 'isUpdate:', !!selectedWorkflowId)
+    
     const customWorkflow = {
-      id: `custom-${Date.now()}`,
+      id: workflowId,
       name: workflowName,
       description: workflowDescription || "Custom workflow",
       category: workflowCategory,
@@ -1908,18 +1939,38 @@ export function VisualWorkflowDesigner({
     // Save to backend if authenticated, otherwise localStorage
     let savedToBackend = false
     try {
-      const { createWorkflow, isAuthenticated } = await import('@/lib/workflow-api')
+      const { createWorkflow, updateWorkflow, isAuthenticated } = await import('@/lib/workflow-api')
       
       if (isAuthenticated()) {
-        const savedWorkflow = await createWorkflow({
-          id: customWorkflow.id,
-          name: customWorkflow.name,
-          description: customWorkflow.description,
-          category: customWorkflow.category,
-          goal: customWorkflow.goal,
-          steps: customWorkflow.steps,
-          connections: customWorkflow.connections
-        })
+        let savedWorkflow
+        
+        // If we have a selectedWorkflowId, UPDATE existing workflow, otherwise CREATE new one
+        if (selectedWorkflowId) {
+          console.log('[VisualWorkflowDesigner] Updating existing workflow:', selectedWorkflowId)
+          savedWorkflow = await updateWorkflow(selectedWorkflowId, {
+            name: customWorkflow.name,
+            description: customWorkflow.description,
+            category: customWorkflow.category,
+            goal: customWorkflow.goal,
+            steps: customWorkflow.steps,
+            connections: customWorkflow.connections
+          })
+        } else {
+          console.log('[VisualWorkflowDesigner] Creating new workflow')
+          savedWorkflow = await createWorkflow({
+            id: customWorkflow.id,
+            name: customWorkflow.name,
+            description: customWorkflow.description,
+            category: customWorkflow.category,
+            goal: customWorkflow.goal,
+            steps: customWorkflow.steps,
+            connections: customWorkflow.connections
+          })
+          // Set the ID for future saves
+          if (savedWorkflow) {
+            setSelectedWorkflowId(savedWorkflow.id)
+          }
+        }
         
         if (savedWorkflow) {
           console.log('[VisualWorkflowDesigner] Workflow saved to backend:', savedWorkflow.id)

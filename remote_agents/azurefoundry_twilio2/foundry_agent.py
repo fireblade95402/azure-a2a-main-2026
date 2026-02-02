@@ -224,11 +224,19 @@ You send SMS text messages to users. You are typically used as the final step in
 You have ONE tool available:
 - **send_sms**: Send an SMS message to a phone number
 
-## How to Process Requests
+## CRITICAL: How to Process Requests
 
-1. **Analyze the incoming message**: Understand what content needs to be sent via SMS
-2. **Compose a clear, concise SMS**: SMS messages should be brief and to the point
-3. **Call the send_sms function**: Send the message to the user
+1. **Extract the message content from the user's request**: The user will provide text that needs to be sent as an SMS. You MUST extract this content.
+2. **Compose a clear, concise SMS from that content**: Adapt it for SMS format (brief and to the point)
+3. **Call the send_sms function with the message parameter**: The `message` parameter is REQUIRED and must contain the actual text to send.
+
+## IMPORTANT: The `message` parameter MUST NOT be empty!
+
+When calling send_sms, you MUST provide a non-empty `message` parameter. Example:
+- ✅ CORRECT: send_sms(message="Your balance is $500. Thanks for checking!", to_number="+15551234567")
+- ❌ WRONG: send_sms(message="", to_number="+15551234567")
+
+If the user says "Send an SMS saying hello", you should call: send_sms(message="Hello!")
 
 ## Message Formatting Guidelines
 
@@ -312,11 +320,22 @@ Remember: Your job is to SEND the SMS, not just describe what you would send. Al
             logger.info(f"🔧 Executing function: {function_name} with args: {function_args}")
             
             if function_name == "send_sms":
-                # Execute the send_sms function
-                result = self.send_sms(
-                    message=function_args.get("message", ""),
-                    to_number=function_args.get("to_number")
-                )
+                # Get the message from args
+                sms_message = function_args.get("message", "")
+                
+                # Guard against empty messages
+                if not sms_message or not sms_message.strip():
+                    logger.error(f"❌ Empty message received from AI model. Full args: {function_args}")
+                    result = {
+                        "success": False,
+                        "error": "Message body is empty. The AI model did not extract the message content properly."
+                    }
+                else:
+                    # Execute the send_sms function
+                    result = self.send_sms(
+                        message=sms_message,
+                        to_number=function_args.get("to_number")
+                    )
                 tool_outputs.append(ToolOutput(
                     tool_call_id=tool_call.id,
                     output=json.dumps(result)

@@ -302,6 +302,44 @@
       "is_custom": true,
       "created_at": "2026-02-01T16:43:19.089698Z",
       "updated_at": "2026-02-02T16:39:34.307844Z"
+    },
+    {
+      "id": "workflow_1770074779756_1z40lyq",
+      "name": "tst_stripe_twilio",
+      "description": "calls the stripe agent then the twilio agent",
+      "category": "Custom",
+      "user_id": "user_3",
+      "steps": [
+        {
+          "id": "step-1770074782600-htkpbr2bc",
+          "agentId": "ai-foundry-stripe-agent",
+          "agentName": "AI Foundry Stripe Agent",
+          "description": "Use the AI Foundry Stripe Agent agent to check current balance",
+          "order": 0,
+          "x": -471.47890910770224,
+          "y": 32.53546951469616
+        },
+        {
+          "id": "step-1770074784011-kv7fmzp2n",
+          "agentId": "twilio-sms-agent",
+          "agentName": "Twilio SMS Agent",
+          "description": "Use the Twilio SMS Agent agent send the results",
+          "order": 1,
+          "x": -191.7880308234721,
+          "y": 13.128347348035293
+        }
+      ],
+      "connections": [
+        {
+          "id": "conn-1770074786274-m6y04s9w2",
+          "fromStepId": "step-1770074782600-htkpbr2bc",
+          "toStepId": "step-1770074784011-kv7fmzp2n"
+        }
+      ],
+      "goal": "Complete the workflow tasks efficiently and accurately",
+      "is_custom": true,
+      "created_at": "2026-02-02T23:26:19.758961Z",
+      "updated_at": "2026-02-02T23:27:03.930757Z"
     }
   ]
 }
