@@ -1,0 +1,310 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { getUserWorkflows, getAgents, Workflow, Agent, UserInfo } from "@/lib/api";
+import { WorkflowCard } from "./WorkflowCard";
+import { AgentCard } from "./AgentCard";
+import { VoiceButton } from "./VoiceButton";
+
+// Get API URL for voice
+const API_BASE_URL = process.env.NEXT_PUBLIC_A2A_API_URL || "http://localhost:12000";
+
+interface DashboardProps {
+  user: UserInfo | null;
+  onLogout: () => void;
+}
+
+type TabType = "workflows" | "agents";
+
+export function Dashboard({ user, onLogout }: DashboardProps) {
+  const [activeTab, setActiveTab] = useState<TabType>("workflows");
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const [workflowsData, agentsData] = await Promise.all([
+        getUserWorkflows(),
+        getAgents(),
+      ]);
+      
+      setWorkflows(workflowsData);
+      setAgents(agentsData);
+    } catch (err) {
+      console.error("Failed to load data:", err);
+      setError("Failed to load data. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const onlineAgents = agents.filter((a) => a.status === "online");
+  const offlineAgents = agents.filter((a) => a.status === "offline");
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      {/* Header */}
+      <header className="sticky top-0 z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-lg border-b border-gray-200 dark:border-gray-800">
+        <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
+          <div className="flex items-center justify-between">
+            {/* Logo & Title */}
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-lg sm:rounded-xl flex items-center justify-center">
+                <svg
+                  className="w-4 h-4 sm:w-5 sm:h-5 text-white"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 10V3L4 14h7v7l9-11h-7z"
+                  />
+                </svg>
+              </div>
+              <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
+                A2A Light
+              </h1>
+            </div>
+
+            {/* User menu */}
+            <div className="flex items-center gap-2 sm:gap-4">
+              {user && (
+                <div className="hidden sm:flex items-center gap-2">
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold"
+                    style={{ backgroundColor: user.color || "#6B7280" }}
+                  >
+                    {user.name?.charAt(0).toUpperCase() || "U"}
+                  </div>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {user.name}
+                  </span>
+                </div>
+              )}
+              <button
+                onClick={onLogout}
+                className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 
+                         hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                title="Sign out"
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Tabs */}
+      <div className="sticky top-[57px] sm:top-[73px] z-40 bg-white/80 dark:bg-slate-900/80 backdrop-blur-lg border-b border-gray-200 dark:border-gray-800">
+        <div className="px-4 sm:px-6 lg:px-8">
+          <nav className="flex gap-1 sm:gap-2 -mb-px" aria-label="Tabs">
+            <button
+              onClick={() => setActiveTab("workflows")}
+              className={`flex-1 sm:flex-none px-4 sm:px-6 py-3 text-sm sm:text-base font-medium border-b-2 transition-colors
+                ${
+                  activeTab === "workflows"
+                    ? "border-primary-500 text-primary-600 dark:text-primary-400"
+                    : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:border-gray-300"
+                }`}
+            >
+              <span className="flex items-center justify-center gap-2">
+                <svg
+                  className="w-4 h-4 sm:w-5 sm:h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"
+                  />
+                </svg>
+                Workflows
+                <span className="hidden sm:inline-flex items-center justify-center px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-full">
+                  {workflows.length}
+                </span>
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("agents")}
+              className={`flex-1 sm:flex-none px-4 sm:px-6 py-3 text-sm sm:text-base font-medium border-b-2 transition-colors
+                ${
+                  activeTab === "agents"
+                    ? "border-primary-500 text-primary-600 dark:text-primary-400"
+                    : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:border-gray-300"
+                }`}
+            >
+              <span className="flex items-center justify-center gap-2">
+                <svg
+                  className="w-4 h-4 sm:w-5 sm:h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                  />
+                </svg>
+                Agents
+                <span className="hidden sm:inline-flex items-center justify-center px-2 py-0.5 text-xs font-medium bg-green-100 dark:bg-green-900/50 text-green-600 dark:text-green-400 rounded-full">
+                  {onlineAgents.length} online
+                </span>
+              </span>
+            </button>
+          </nav>
+        </div>
+      </div>
+
+      {/* Content */}
+      <main className="flex-1 px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="flex flex-col items-center gap-3">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Loading...
+              </p>
+            </div>
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center py-12 gap-4">
+            <div className="p-4 bg-red-50 dark:bg-red-900/30 rounded-xl">
+              <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            </div>
+            <button
+              onClick={loadData}
+              className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        ) : activeTab === "workflows" ? (
+          <WorkflowsTab workflows={workflows} />
+        ) : (
+          <AgentsTab onlineAgents={onlineAgents} offlineAgents={offlineAgents} />
+        )}
+      </main>
+
+      {/* Voice Button */}
+      {user && (
+        <VoiceButton userId={user.user_id} apiUrl={API_BASE_URL} />
+      )}
+    </div>
+  );
+}
+
+function WorkflowsTab({ workflows }: { workflows: Workflow[] }) {
+  if (workflows.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-center">
+        <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-2xl flex items-center justify-center mb-4">
+          <svg
+            className="w-8 h-8 text-gray-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"
+            />
+          </svg>
+        </div>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+          No workflows yet
+        </h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Workflows you create will appear here
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      {workflows.map((workflow) => (
+        <WorkflowCard key={workflow.id} workflow={workflow} />
+      ))}
+    </div>
+  );
+}
+
+function AgentsTab({
+  onlineAgents,
+  offlineAgents,
+}: {
+  onlineAgents: Agent[];
+  offlineAgents: Agent[];
+}) {
+  return (
+    <div className="space-y-6">
+      {/* Online Agents */}
+      <section>
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+          <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+          Online ({onlineAgents.length})
+        </h2>
+        {onlineAgents.length === 0 ? (
+          <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl text-center">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              No agents online
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {onlineAgents.map((agent) => (
+              <AgentCard key={agent.url || agent.name} agent={agent} />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Offline Agents */}
+      {offlineAgents.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-3 flex items-center gap-2">
+            <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
+            Offline ({offlineAgents.length})
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 opacity-60">
+            {offlineAgents.map((agent) => (
+              <AgentCard key={agent.url || agent.name} agent={agent} />
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}

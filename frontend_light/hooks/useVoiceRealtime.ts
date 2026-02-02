@@ -1,0 +1,597 @@
+"use client";
+
+import { useCallback, useRef, useState } from "react";
+
+interface VoiceRealtimeConfig {
+  apiUrl: string;
+  userId: string;
+  onTranscript?: (text: string, isFinal: boolean) => void;
+  onResult?: (result: string) => void;
+  onError?: (error: string) => void;
+}
+
+interface VoiceRealtimeHook {
+  isConnected: boolean;
+  isListening: boolean;
+  isSpeaking: boolean;
+  isProcessing: boolean;
+  transcript: string;
+  result: string;
+  error: string | null;
+  startConversation: () => Promise<void>;
+  stopConversation: () => void;
+}
+
+// Convert base64 to ArrayBuffer for audio playback
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+// Convert Float32 to Int16 for sending audio
+function floatTo16BitPCM(float32Array: Float32Array): Int16Array {
+  const int16Array = new Int16Array(float32Array.length);
+  for (let i = 0; i < float32Array.length; i++) {
+    const s = Math.max(-1, Math.min(1, float32Array[i]));
+    int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  return int16Array;
+}
+
+// Downsample audio from browser's sample rate to 24kHz
+function downsampleBuffer(
+  buffer: Float32Array,
+  inputSampleRate: number,
+  outputSampleRate: number
+): Float32Array {
+  if (inputSampleRate === outputSampleRate) {
+    return buffer;
+  }
+  const ratio = inputSampleRate / outputSampleRate;
+  const newLength = Math.round(buffer.length / ratio);
+  const result = new Float32Array(newLength);
+  let offsetResult = 0;
+  let offsetBuffer = 0;
+  while (offsetResult < result.length) {
+    const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
+    let accum = 0,
+      count = 0;
+    for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
+      accum += buffer[i];
+      count++;
+    }
+    result[offsetResult] = accum / count;
+    offsetResult++;
+    offsetBuffer = nextOffsetBuffer;
+  }
+  return result;
+}
+
+export function useVoiceRealtime(config: VoiceRealtimeConfig): VoiceRealtimeHook {
+  const [isConnected, setIsConnected] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [transcript, setTranscript] = useState("");
+  const [result, setResult] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const wsRef = useRef<WebSocket | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const playbackContextRef = useRef<AudioContext | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const audioQueueRef = useRef<ArrayBuffer[]>([]);
+  const isPlayingRef = useRef(false);
+  const nextStartTimeRef = useRef(0);
+  const pendingCallRef = useRef<{ call_id: string; item_id: string } | null>(null);
+
+  // Get Azure token from the API route
+  const getAzureToken = async (): Promise<string> => {
+    const response = await fetch("/api/azure-token");
+    if (!response.ok) {
+      throw new Error("Failed to get Azure token");
+    }
+    const data = await response.json();
+    return data.token;
+  };
+
+  // Call the /api/query endpoint
+  const executeQuery = async (query: string): Promise<string> => {
+    try {
+      console.log("[VoiceRealtime] Calling /api/query with:", { query, user_id: config.userId });
+      
+      const response = await fetch(`${config.apiUrl}/api/query`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query,
+          user_id: config.userId,
+          timeout: 120,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Query failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      console.log("[VoiceRealtime] Query result:", data);
+      
+      return data.result || "I completed the task but have no additional details to share.";
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "Query failed";
+      console.error("[VoiceRealtime] Query error:", err);
+      return `Sorry, I encountered an error: ${errorMessage}`;
+    }
+  };
+
+  // Track active audio sources
+  const currentSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+
+  // Process a single audio chunk
+  const processAudioChunk = useCallback(() => {
+    if (!playbackContextRef.current || audioQueueRef.current.length === 0) {
+      return;
+    }
+
+    const audioData = audioQueueRef.current.shift();
+    if (!audioData) return;
+
+    try {
+      const audioContext = playbackContextRef.current;
+      
+      // Convert PCM16 to Float32
+      const int16Array = new Int16Array(audioData);
+      const float32Array = new Float32Array(int16Array.length);
+      for (let i = 0; i < int16Array.length; i++) {
+        float32Array[i] = int16Array[i] / 32768;
+      }
+
+      const audioBuffer = audioContext.createBuffer(1, float32Array.length, 24000);
+      audioBuffer.copyToChannel(float32Array, 0);
+
+      const source = audioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioContext.destination);
+
+      // Track source for cleanup
+      currentSourcesRef.current.push(source);
+
+      // Handle source completion
+      source.onended = () => {
+        const index = currentSourcesRef.current.indexOf(source);
+        if (index > -1) {
+          currentSourcesRef.current.splice(index, 1);
+        }
+        
+        // Check if we're done playing all audio
+        if (currentSourcesRef.current.length === 0 && audioQueueRef.current.length === 0) {
+          // Add a small delay before re-enabling mic to avoid feedback
+          setTimeout(() => {
+            isPlayingRef.current = false;
+            setIsSpeaking(false);
+            console.log("[VoiceRealtime] 🔊 Playback complete, mic re-enabled");
+          }, 300);
+        }
+      };
+
+      // Schedule with precise timing
+      const now = audioContext.currentTime;
+      const scheduleTime = Math.max(now, nextStartTimeRef.current);
+      source.start(scheduleTime);
+      nextStartTimeRef.current = scheduleTime + audioBuffer.duration;
+    } catch (err) {
+      console.error("[VoiceRealtime] Audio chunk error:", err);
+    }
+  }, []);
+
+  // Play audio from queue
+  const playAudioQueue = useCallback(async () => {
+    if (!playbackContextRef.current) {
+      playbackContextRef.current = new AudioContext({ sampleRate: 24000 });
+      await playbackContextRef.current.resume();
+    }
+
+    // Initialize timing on first call
+    if (!isPlayingRef.current) {
+      isPlayingRef.current = true;
+      setIsSpeaking(true);
+      nextStartTimeRef.current = playbackContextRef.current.currentTime + 0.05;
+      console.log("[VoiceRealtime] 🔊 Starting playback, mic muted");
+    }
+
+    // Process all available chunks
+    while (audioQueueRef.current.length > 0) {
+      processAudioChunk();
+    }
+  }, [processAudioChunk]);
+
+  // Handle WebSocket messages
+  const handleMessage = useCallback(
+    async (event: MessageEvent) => {
+      try {
+        const msg = JSON.parse(event.data);
+        console.log("[VoiceRealtime] Event:", msg.type);
+
+        switch (msg.type) {
+          case "session.created":
+          case "session.updated":
+            console.log("[VoiceRealtime] Session ready");
+            setIsListening(true);
+            break;
+
+          case "input_audio_buffer.speech_started":
+            console.log("[VoiceRealtime] 🎤 Speech started - VAD detected voice");
+            break;
+
+          case "input_audio_buffer.speech_stopped":
+            console.log("[VoiceRealtime] 🎤 Speech stopped - VAD detected silence");
+            break;
+
+          case "input_audio_buffer.committed":
+            console.log("[VoiceRealtime] 🎤 Audio buffer committed");
+            break;
+
+          case "conversation.item.input_audio_transcription.completed":
+            console.log("[VoiceRealtime] User said:", msg.transcript);
+            setTranscript(msg.transcript || "");
+            config.onTranscript?.(msg.transcript || "", true);
+            break;
+
+          case "response.created":
+            console.log("[VoiceRealtime] 🤖 Response started");
+            setIsListening(false);
+            break;
+
+          case "response.function_call_arguments.done":
+            console.log("[VoiceRealtime] Function call:", msg.name, msg.arguments);
+            // Only process if we have a pending call and haven't processed it yet
+            if (msg.name === "execute_query" && pendingCallRef.current) {
+              const currentCallId = pendingCallRef.current.call_id;
+              // Clear pending immediately to prevent duplicate processing
+              pendingCallRef.current = null;
+              
+              setIsProcessing(true);
+              setIsListening(false);
+              
+              try {
+                const args = JSON.parse(msg.arguments || "{}");
+                console.log("[VoiceRealtime] 📤 Calling /api/query with:", args.query || transcript);
+                const queryResult = await executeQuery(args.query || transcript);
+                
+                console.log("[VoiceRealtime] 📥 Query result received:", queryResult?.substring(0, 200));
+                setResult(queryResult);
+                config.onResult?.(queryResult);
+
+                // Inject result back to Realtime API
+                if (wsRef.current?.readyState === WebSocket.OPEN) {
+                  console.log("[VoiceRealtime] 📤 Sending function output to Realtime API");
+                  // Send function output
+                  wsRef.current.send(
+                    JSON.stringify({
+                      type: "conversation.item.create",
+                      item: {
+                        type: "function_call_output",
+                        call_id: currentCallId,
+                        output: queryResult,
+                      },
+                    })
+                  );
+
+                  console.log("[VoiceRealtime] 📤 Requesting response.create");
+                  // Request AI to respond with the result
+                  wsRef.current.send(JSON.stringify({ type: "response.create" }));
+                } else {
+                  console.error("[VoiceRealtime] ❌ WebSocket not open, cannot send result");
+                }
+              } catch (err) {
+                console.error("[VoiceRealtime] Function execution error:", err);
+              } finally {
+                setIsProcessing(false);
+              }
+            }
+            break;
+
+          case "conversation.item.created":
+            if (msg.item?.type === "function_call") {
+              console.log("[VoiceRealtime] Function call created:", msg.item.name);
+              pendingCallRef.current = {
+                call_id: msg.item.call_id,
+                item_id: msg.item.id,
+              };
+            }
+            break;
+
+          case "response.audio.delta":
+            if (msg.delta) {
+              const audioData = base64ToArrayBuffer(msg.delta);
+              audioQueueRef.current.push(audioData);
+              
+              // Start playback after buffering some chunks OR continue if already playing
+              if (audioQueueRef.current.length >= 5 || isPlayingRef.current) {
+                playAudioQueue();
+              }
+            }
+            break;
+
+          case "response.audio.done":
+            console.log("[VoiceRealtime] 🔊 All audio chunks received");
+            // Flush any remaining chunks
+            if (audioQueueRef.current.length > 0) {
+              playAudioQueue();
+            }
+            break;
+
+          case "response.done":
+            console.log("[VoiceRealtime] Response complete");
+            setIsListening(true);
+            break;
+
+          case "error":
+            console.error("[VoiceRealtime] API error:", msg.error);
+            setError(msg.error?.message || "Unknown error");
+            config.onError?.(msg.error?.message || "Unknown error");
+            break;
+        }
+      } catch (err) {
+        console.error("[VoiceRealtime] Message parse error:", err);
+      }
+    },
+    [config, transcript, playAudioQueue, executeQuery]
+  );
+
+  // Start voice conversation
+  const startConversation = useCallback(async () => {
+    try {
+      setError(null);
+      setTranscript("");
+      setResult("");
+
+      // Get Azure token
+      const token = await getAzureToken();
+
+      // Get resource name from environment - use AZURE_AI_FOUNDRY_PROJECT_ENDPOINT like main frontend
+      const foundryUrl = process.env.NEXT_PUBLIC_AZURE_AI_FOUNDRY_PROJECT_ENDPOINT || "";
+      
+      if (!foundryUrl) {
+        throw new Error("NEXT_PUBLIC_AZURE_AI_FOUNDRY_PROJECT_ENDPOINT is not configured");
+      }
+      
+      const resourceMatch = foundryUrl.match(/https:\/\/([^.]+)/);
+      const resourceName = resourceMatch?.[1];
+      
+      if (!resourceName) {
+        throw new Error(`Invalid Foundry URL: ${foundryUrl}. Expected: https://[resource].services.ai.azure.com/...`);
+      }
+
+      // Build WebSocket URL - using Voice Live API (same as main frontend)
+      const model = process.env.NEXT_PUBLIC_VOICE_MODEL || "gpt-4o-realtime-preview";
+      const wsUrl = `wss://${resourceName}.services.ai.azure.com/voice-live/realtime?api-version=2025-10-01&api-key=${token}&model=${model}`;
+
+      console.log("[VoiceRealtime] Connecting to:", wsUrl.replace(token, "***"));
+
+      // Create WebSocket
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      // Initialize audio contexts
+      playbackContextRef.current = new AudioContext({ sampleRate: 24000 });
+      nextStartTimeRef.current = 0;
+
+      ws.onopen = () => {
+        console.log("[VoiceRealtime] Connected");
+        setIsConnected(true);
+
+        // Configure session - using Voice Live API format (matching main frontend)
+        ws.send(
+          JSON.stringify({
+            type: "session.update",
+            session: {
+              instructions: `You are a helpful assistant. When the user asks you to do something, you MUST call the execute_query function with their request. After receiving the function result, summarize it conversationally and briefly.
+
+IMPORTANT RULES:
+1. For ANY user request, call execute_query immediately
+2. Keep your spoken responses brief and natural
+3. Do not read long technical details - summarize them
+4. Be conversational and friendly`,
+              modalities: ["text", "audio"],
+              // Voice Live API enhanced turn detection
+              turn_detection: {
+                type: "azure_semantic_vad",
+                threshold: 0.5,
+                prefix_padding_ms: 300,
+                silence_duration_ms: 500,
+                remove_filler_words: false,
+              },
+              input_audio_format: "pcm16",
+              output_audio_format: "pcm16",
+              input_audio_sampling_rate: 24000,
+              input_audio_noise_reduction: {
+                type: "azure_deep_noise_suppression",
+              },
+              input_audio_echo_cancellation: {
+                type: "server_echo_cancellation",
+              },
+              input_audio_transcription: {
+                model: "whisper-1",
+              },
+              voice: {
+                name: "en-US-Ava:DragonHDLatestNeural",
+                type: "azure-standard",
+                temperature: 0.6,
+              },
+              temperature: 0.6,
+              tools: [
+                {
+                  type: "function",
+                  name: "execute_query",
+                  description:
+                    "Execute any user request by sending it to the agent network. Use this for ALL user requests.",
+                  parameters: {
+                    type: "object",
+                    properties: {
+                      query: {
+                        type: "string",
+                        description: "The user's request to execute",
+                      },
+                    },
+                    required: ["query"],
+                  },
+                },
+              ],
+              tool_choice: "auto",
+            },
+          })
+        );
+
+        // Start microphone
+        startMicrophone();
+      };
+
+      ws.onmessage = handleMessage;
+
+      ws.onerror = (err) => {
+        console.error("[VoiceRealtime] WebSocket error:", err);
+        setError("Connection error - check Azure configuration");
+        setIsConnected(false);
+      };
+
+      ws.onclose = (event) => {
+        console.log("[VoiceRealtime] Disconnected:", event.code, event.reason);
+        if (event.code === 1006) {
+          setError("Connection failed - check NEXT_PUBLIC_AZURE_AI_FOUNDRY_PROJECT_ENDPOINT");
+        }
+        setIsConnected(false);
+        setIsListening(false);
+        stopMicrophone();
+      };
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to start";
+      console.error("[VoiceRealtime] Start error:", err);
+      setError(errorMessage);
+    }
+  }, [handleMessage]);
+
+  // Start microphone capture
+  const startMicrophone = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 24000,
+        },
+      });
+      streamRef.current = stream;
+
+      audioContextRef.current = new AudioContext({ sampleRate: 24000 });
+      const source = audioContextRef.current.createMediaStreamSource(stream);
+      
+      // Use ScriptProcessor for audio capture (deprecated but widely supported)
+      const processor = audioContextRef.current.createScriptProcessor(4096, 1, 1);
+      processorRef.current = processor;
+
+      let audioChunkCount = 0;
+      processor.onaudioprocess = (e) => {
+        // Only send audio when NOT playing back (to avoid echo/feedback)
+        if (wsRef.current?.readyState === WebSocket.OPEN && !isPlayingRef.current) {
+          const inputData = e.inputBuffer.getChannelData(0);
+          const downsampledData = downsampleBuffer(
+            inputData,
+            audioContextRef.current?.sampleRate || 44100,
+            24000
+          );
+          const pcm16Data = floatTo16BitPCM(downsampledData);
+          
+          // Convert to base64 without spread operator for TypeScript compatibility
+          const uint8Array = new Uint8Array(pcm16Data.buffer);
+          let binaryString = "";
+          for (let i = 0; i < uint8Array.length; i++) {
+            binaryString += String.fromCharCode(uint8Array[i]);
+          }
+          const base64Audio = btoa(binaryString);
+
+          wsRef.current.send(
+            JSON.stringify({
+              type: "input_audio_buffer.append",
+              audio: base64Audio,
+            })
+          );
+
+          // Log every 50th chunk
+          audioChunkCount++;
+          if (audioChunkCount % 50 === 0) {
+            console.log("[VoiceRealtime] 🎤 Sent", audioChunkCount, "audio chunks");
+          }
+        }
+      };
+
+      source.connect(processor);
+      processor.connect(audioContextRef.current.destination);
+
+      console.log("[VoiceRealtime] Microphone started");
+    } catch (err) {
+      console.error("[VoiceRealtime] Microphone error:", err);
+      setError("Microphone access denied");
+    }
+  };
+
+  // Stop microphone
+  const stopMicrophone = () => {
+    if (processorRef.current) {
+      processorRef.current.disconnect();
+      processorRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+  };
+
+  // Stop conversation
+  const stopConversation = useCallback(() => {
+    console.log("[VoiceRealtime] Stopping conversation");
+    
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    
+    stopMicrophone();
+    
+    if (playbackContextRef.current) {
+      playbackContextRef.current.close();
+      playbackContextRef.current = null;
+    }
+
+    audioQueueRef.current = [];
+    isPlayingRef.current = false;
+    pendingCallRef.current = null;
+
+    setIsConnected(false);
+    setIsListening(false);
+    setIsSpeaking(false);
+    setIsProcessing(false);
+  }, []);
+
+  return {
+    isConnected,
+    isListening,
+    isSpeaking,
+    isProcessing,
+    transcript,
+    result,
+    error,
+    startConversation,
+    stopConversation,
+  };
+}

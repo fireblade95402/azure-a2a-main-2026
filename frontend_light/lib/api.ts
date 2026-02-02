@@ -1,0 +1,172 @@
+// API URL: Uses environment variable, or falls back to same-origin (for reverse proxy setups)
+// For Azure Container Apps: Set NEXT_PUBLIC_A2A_API_URL at build time
+// Or use a reverse proxy to route /api/* to the backend
+function getApiBaseUrl(): string {
+  // Build-time environment variable (Next.js)
+  if (process.env.NEXT_PUBLIC_A2A_API_URL) {
+    return process.env.NEXT_PUBLIC_A2A_API_URL;
+  }
+  
+  // Runtime: check for window config (can be injected via script tag)
+  if (typeof window !== 'undefined' && (window as { __API_URL__?: string }).__API_URL__) {
+    return (window as { __API_URL__?: string }).__API_URL__!;
+  }
+  
+  // Default: localhost for development
+  return 'http://localhost:12000';
+}
+
+const API_BASE_URL = getApiBaseUrl();
+
+export interface UserInfo {
+  user_id: string;
+  email: string;
+  name: string;
+  role: string;
+  description?: string;
+  skills?: string[];
+  color: string;
+}
+
+export interface LoginResponse {
+  success: boolean;
+  access_token?: string;
+  user_info?: UserInfo;
+  message?: string;
+}
+
+export interface Workflow {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  user_id: string;
+  steps: WorkflowStep[];
+  connections: WorkflowConnection[];
+  goal?: string;
+  isCustom: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowStep {
+  id: string;
+  agentId: string;
+  agentName: string;
+  description: string;
+  order: number;
+}
+
+export interface WorkflowConnection {
+  id: string;
+  fromStepId: string;
+  toStepId: string;
+}
+
+export interface Agent {
+  name: string;
+  description: string;
+  url: string;
+  version?: string;
+  iconUrl?: string;
+  provider?: {
+    organization?: string;
+  };
+  capabilities?: {
+    streaming?: boolean;
+    pushNotifications?: boolean;
+  };
+  status: 'online' | 'offline';
+}
+
+function getAuthToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return sessionStorage.getItem('auth_token');
+}
+
+function getAuthHeaders(): HeadersInit {
+  const token = getAuthToken();
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+export async function login(email: string, password: string): Promise<LoginResponse> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('[API] Login error:', error);
+    return {
+      success: false,
+      message: 'Unable to connect to server',
+    };
+  }
+}
+
+export async function getUserWorkflows(): Promise<Workflow[]> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/workflows`, {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        console.warn('[API] User not authenticated');
+        return [];
+      }
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.workflows || [];
+  } catch (error) {
+    console.error('[API] Failed to get workflows:', error);
+    return [];
+  }
+}
+
+export async function getAgents(): Promise<Agent[]> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/agents`, {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    
+    // Transform agent data
+    const agents: Agent[] = (data.agents || []).map((agent: Record<string, unknown>) => ({
+      name: agent.name as string,
+      description: agent.description as string || '',
+      url: agent.url as string || '',
+      version: agent.version as string || '',
+      iconUrl: agent.iconUrl as string || null,
+      provider: agent.provider as { organization?: string } || null,
+      capabilities: agent.capabilities as { streaming?: boolean; pushNotifications?: boolean } || {},
+      status: agent.status === 'online' ? 'online' : 'offline',
+    }));
+
+    return agents;
+  } catch (error) {
+    console.error('[API] Failed to get agents:', error);
+    return [];
+  }
+}
