@@ -861,13 +861,21 @@ class ConversationServer:
             return False
 
     async def _get_agents(self):
-        """Get current agent registry in a simple format for WebSocket sync."""
+        """Get current agent registry in a simple format for WebSocket sync.
+        
+        Reads agents from the persistent registry file and performs health checks
+        on each agent URL to determine online/offline status.
+        """
         try:
             log_debug("Starting agent registry sync with health checks...")
-            agents = self.manager.agents
+            
+            # Read agents from the persistent registry file (not in-memory list)
+            from service.agent_registry import get_registry
+            registry = get_registry()
+            registry_agents = registry.get_all_agents()
             
             # First, collect all agent URLs for concurrent health checks
-            agent_urls = [getattr(agent, 'url', None) for agent in agents if hasattr(agent, 'name')]
+            agent_urls = [agent.get('url') for agent in registry_agents if agent.get('name')]
             
             # Do concurrent health checks for all agents at once
             health_tasks = [self._check_agent_health(url) for url in agent_urls]
@@ -883,44 +891,32 @@ class ConversationServer:
             
             # Convert to detailed format for UI
             agent_list = []
-            for agent in agents:
-                if hasattr(agent, 'name'):
-                    agent_url = getattr(agent, 'url', None)
+            for agent in registry_agents:
+                agent_name = agent.get('name')
+                if agent_name:
+                    agent_url = agent.get('url')
                     agent_status = health_map.get(agent_url, False)
                     
+                    # Get capabilities from dict
+                    caps = agent.get('capabilities', {}) or {}
+                    
                     agent_data = {
-                        'name': agent.name,
-                        'description': getattr(agent, 'description', ''),
+                        'name': agent_name,
+                        'description': agent.get('description', ''),
                         'url': agent_url,
-                        'version': getattr(agent, 'version', ''),
-                        'iconUrl': getattr(agent, 'iconUrl', None),
-                        'provider': getattr(agent, 'provider', None),
-                        'documentationUrl': getattr(agent, 'documentationUrl', None),
+                        'version': agent.get('version', ''),
+                        'iconUrl': agent.get('iconUrl'),
+                        'provider': agent.get('provider'),
+                        'documentationUrl': agent.get('documentationUrl'),
                         'capabilities': {
-                            'streaming': getattr(getattr(agent, 'capabilities', None), 'streaming', False),
-                            'pushNotifications': getattr(getattr(agent, 'capabilities', None), 'pushNotifications', False),
-                            'stateTransitionHistory': getattr(getattr(agent, 'capabilities', None), 'stateTransitionHistory', False),
-                            'extensions': getattr(getattr(agent, 'capabilities', None), 'extensions', [])
-                        } if hasattr(agent, 'capabilities') and agent.capabilities else {
-                            'streaming': False,
-                            'pushNotifications': False,
-                            'stateTransitionHistory': False,
-                            'extensions': []
+                            'streaming': caps.get('streaming', False),
+                            'pushNotifications': caps.get('pushNotifications', False),
+                            'stateTransitionHistory': caps.get('stateTransitionHistory', False),
+                            'extensions': caps.get('extensions', [])
                         },
-                        'skills': [
-                            {
-                                'id': skill.id,
-                                'name': skill.name,
-                                'description': skill.description,
-                                'tags': getattr(skill, 'tags', []),
-                                'examples': getattr(skill, 'examples', []),
-                                'inputModes': getattr(skill, 'inputModes', []),
-                                'outputModes': getattr(skill, 'outputModes', [])
-                            }
-                            for skill in getattr(agent, 'skills', [])
-                        ] if hasattr(agent, 'skills') else [],
-                        'defaultInputModes': getattr(agent, 'defaultInputModes', []),
-                        'defaultOutputModes': getattr(agent, 'defaultOutputModes', []),
+                        'skills': agent.get('skills', []),
+                        'defaultInputModes': agent.get('defaultInputModes', []),
+                        'defaultOutputModes': agent.get('defaultOutputModes', []),
                         'type': 'remote',  # Mark as remote agent
                         'status': 'online' if agent_status else 'offline'
                     }
