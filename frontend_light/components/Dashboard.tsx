@@ -400,48 +400,71 @@ function MessagesTab({ messages }: { messages: VoiceMessage[] }) {
   }
 
   return (
-    <div className="space-y-4 max-w-3xl mx-auto">
+    <div className="space-y-3 max-w-3xl mx-auto">
       {messages.map((message) => (
-        <div
-          key={message.id}
-          className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden"
-        >
-          {/* User query */}
-          <div className="px-4 py-3 bg-gray-50 dark:bg-slate-900/50 border-b border-gray-200 dark:border-gray-700">
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-primary-100 dark:bg-primary-900/50 rounded-full flex items-center justify-center flex-shrink-0">
-                <svg className="w-4 h-4 text-primary-600 dark:text-primary-400" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-                  <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
-                </svg>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 dark:text-white">
-                  {message.userQuery}
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  {new Date(message.timestamp).toLocaleTimeString()}
-                </p>
-              </div>
-            </div>
-          </div>
+        <MessageCard key={message.id} message={message} />
+      ))}
+    </div>
+  );
+}
 
-          {/* Response */}
-          <div className="px-4 py-4">
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-green-100 dark:bg-green-900/50 rounded-full flex items-center justify-center flex-shrink-0">
-                <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <div 
-                className="flex-1 min-w-0 text-sm text-gray-700 dark:text-gray-300 prose prose-sm dark:prose-invert max-w-none"
-                dangerouslySetInnerHTML={{ __html: formatMarkdown(message.response) }}
-              />
+function MessageCard({ message }: { message: VoiceMessage }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <div
+      className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden transition-all duration-200"
+    >
+      {/* Collapsed header - click to expand */}
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full px-4 py-3 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors text-left"
+      >
+        {/* Mic icon */}
+        <div className="w-8 h-8 bg-primary-100 dark:bg-primary-900/50 rounded-full flex items-center justify-center flex-shrink-0">
+          <svg className="w-4 h-4 text-primary-600 dark:text-primary-400" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+            <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+          </svg>
+        </div>
+
+        {/* Query text */}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+            {message.userQuery}
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            {new Date(message.timestamp).toLocaleTimeString()}
+          </p>
+        </div>
+
+        {/* Expand/collapse chevron */}
+        <svg
+          className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* Expanded response */}
+      {isExpanded && (
+        <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-slate-900/30">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 bg-green-100 dark:bg-green-900/50 rounded-full flex items-center justify-center flex-shrink-0">
+              <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
             </div>
+            <div 
+              className="flex-1 min-w-0 text-sm text-gray-700 dark:text-gray-300 prose prose-sm dark:prose-invert max-w-none"
+              dangerouslySetInnerHTML={{ __html: formatMarkdown(message.response) }}
+            />
           </div>
         </div>
-      ))}
+      )}
     </div>
   );
 }
