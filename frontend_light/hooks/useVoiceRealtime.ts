@@ -15,6 +15,7 @@ interface VoiceRealtimeHook {
   isListening: boolean;
   isSpeaking: boolean;
   isProcessing: boolean;
+  currentAgent: string | null;
   transcript: string;
   result: string;
   error: string | null;
@@ -76,11 +77,13 @@ export function useVoiceRealtime(config: VoiceRealtimeConfig): VoiceRealtimeHook
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [currentAgent, setCurrentAgent] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
   const [result, setResult] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
+  const backendWsRef = useRef<WebSocket | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const playbackContextRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -89,6 +92,8 @@ export function useVoiceRealtime(config: VoiceRealtimeConfig): VoiceRealtimeHook
   const isPlayingRef = useRef(false);
   const nextStartTimeRef = useRef(0);
   const pendingCallRef = useRef<{ call_id: string; item_id: string } | null>(null);
+  const fillerSpokenRef = useRef(false);
+  const isProcessingRef = useRef(false);
 
   // Get Azure token from the API route
   const getAzureToken = async (): Promise<string> => {
@@ -100,10 +105,125 @@ export function useVoiceRealtime(config: VoiceRealtimeConfig): VoiceRealtimeHook
     return data.token;
   };
 
+  // Speak a filler message using Web Speech API (separate from Voice Realtime)
+  // DISABLED: The filler gets picked up by the microphone and confuses the AI
+  // The microphone muting during playback doesn't help because Web Speech uses system audio
+  const speakFiller = useCallback((text: string) => {
+    // DISABLED - causes echo issues where AI hears the filler as user input
+    console.log("[VoiceRealtime] 🗣️ Filler disabled to prevent echo:", text);
+    return;
+    
+    // Original implementation kept for reference:
+    /*
+    // Check if Web Speech API is available
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      console.log("[VoiceRealtime] Web Speech API not available");
+      return;
+    }
+
+    // Only speak one filler per request
+    if (fillerSpokenRef.current) {
+      console.log("[VoiceRealtime] Filler already spoken for this request");
+      return;
+    }
+    fillerSpokenRef.current = true;
+
+    console.log("[VoiceRealtime] 🗣️ Speaking filler via Web Speech:", text);
+
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.1; // Slightly faster for fillers
+    utterance.pitch = 1.0;
+    utterance.volume = 0.8; // Slightly quieter than main voice
+
+    // Try to use a natural English voice
+    const voices = window.speechSynthesis.getVoices();
+    const preferredVoice = voices.find(
+      (v) => v.name.includes("Samantha") || v.name.includes("Alex") || 
+             v.name.includes("Google") || v.lang.startsWith("en")
+    );
+    if (preferredVoice) {
+      utterance.voice = preferredVoice;
+    }
+
+    window.speechSynthesis.speak(utterance);
+    */
+  }, []);
+
+  // Connect to backend WebSocket for status events
+  const connectBackendWebSocket = useCallback(() => {
+    // Connect to the /events WebSocket endpoint with tenantId parameter
+    const wsUrl = `ws://localhost:8080/events?tenantId=${encodeURIComponent(config.userId)}`;
+    console.log("[VoiceRealtime] Connecting to backend WebSocket:", wsUrl);
+
+    const ws = new WebSocket(wsUrl);
+    backendWsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log("[VoiceRealtime] Backend WebSocket connected");
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        // Debug: Log all incoming events (reduce noise)
+        if (data.eventType !== "agent_registry_sync") {
+          console.log("[VoiceRealtime] Backend event received:", data.eventType);
+        }
+        
+        // Handle remote_agent_activity events - update visual status
+        if (data.eventType === "remote_agent_activity" && isProcessingRef.current) {
+          const agentName = data.data?.agentName || data.agentName || "";
+          const content = data.data?.content || data.content || "";
+          
+          // Skip host agent messages
+          if (agentName.toLowerCase().includes("host") || agentName.toLowerCase().includes("foundry-host")) {
+            return;
+          }
+          
+          console.log("[VoiceRealtime] 🎯 Agent activity:", agentName, content?.substring(0, 50));
+          
+          // Create friendly name for visual display
+          const friendlyName = agentName
+            .replace(/^azurefoundry_/i, "")
+            .replace(/^AI Foundry /i, "")
+            .replace(/_/g, " ")
+            .replace(/ Agent$/i, "");
+          
+          if (friendlyName) {
+            // Update visual status (no audio filler - causes echo issues)
+            setCurrentAgent(friendlyName);
+          }
+        }
+      } catch (err) {
+        console.log("[VoiceRealtime] Parse error:", err);
+      }
+    };
+
+    ws.onerror = () => {
+      console.log("[VoiceRealtime] Backend WebSocket error");
+    };
+
+    ws.onclose = () => {
+      console.log("[VoiceRealtime] Backend WebSocket disconnected");
+    };
+  }, [config.userId, speakFiller]);
+
+  // Disconnect backend WebSocket
+  const disconnectBackendWebSocket = useCallback(() => {
+    if (backendWsRef.current) {
+      backendWsRef.current.close();
+      backendWsRef.current = null;
+    }
+  }, []);
+
   // Call the /api/query endpoint
   const executeQuery = async (query: string): Promise<string> => {
     try {
-      console.log("[VoiceRealtime] Calling /api/query with:", { query, user_id: config.userId });
+      console.log("[VoiceRealtime] Calling /api/query with:", { query, user_id: config.userId, session_id: config.userId });
       
       const response = await fetch(`${config.apiUrl}/api/query`, {
         method: "POST",
@@ -111,6 +231,7 @@ export function useVoiceRealtime(config: VoiceRealtimeConfig): VoiceRealtimeHook
         body: JSON.stringify({
           query,
           user_id: config.userId,
+          session_id: config.userId,  // Use userId as session_id so WebSocket events route correctly
           timeout: 120,
         }),
       });
@@ -257,6 +378,8 @@ export function useVoiceRealtime(config: VoiceRealtimeConfig): VoiceRealtimeHook
               pendingCallRef.current = null;
               
               setIsProcessing(true);
+              isProcessingRef.current = true;
+              fillerSpokenRef.current = false; // Reset filler flag for this request
               setIsListening(false);
               
               try {
@@ -293,6 +416,8 @@ export function useVoiceRealtime(config: VoiceRealtimeConfig): VoiceRealtimeHook
                 console.error("[VoiceRealtime] Function execution error:", err);
               } finally {
                 setIsProcessing(false);
+                isProcessingRef.current = false;
+                setCurrentAgent(null);
               }
             }
             break;
@@ -351,6 +476,18 @@ export function useVoiceRealtime(config: VoiceRealtimeConfig): VoiceRealtimeHook
       setError(null);
       setTranscript("");
       setResult("");
+
+      // Preload Web Speech voices for fillers
+      if ("speechSynthesis" in window) {
+        // Trigger voice loading
+        window.speechSynthesis.getVoices();
+        // Chrome needs this event listener to get voices
+        if (window.speechSynthesis.onvoiceschanged !== undefined) {
+          window.speechSynthesis.onvoiceschanged = () => {
+            console.log("[VoiceRealtime] Web Speech voices loaded:", window.speechSynthesis.getVoices().length);
+          };
+        }
+      }
 
       // Get Azure token
       const token = await getAzureToken();
@@ -451,6 +588,9 @@ IMPORTANT RULES:
 
         // Start microphone
         startMicrophone();
+        
+        // Connect to backend WebSocket for agent activity events (voice fillers)
+        connectBackendWebSocket();
       };
 
       ws.onmessage = handleMessage;
@@ -566,6 +706,9 @@ IMPORTANT RULES:
       wsRef.current = null;
     }
     
+    // Disconnect backend WebSocket
+    disconnectBackendWebSocket();
+    
     stopMicrophone();
     
     if (playbackContextRef.current) {
@@ -576,18 +719,22 @@ IMPORTANT RULES:
     audioQueueRef.current = [];
     isPlayingRef.current = false;
     pendingCallRef.current = null;
+    fillerSpokenRef.current = false;
+    isProcessingRef.current = false;
 
     setIsConnected(false);
     setIsListening(false);
     setIsSpeaking(false);
     setIsProcessing(false);
-  }, []);
+    setCurrentAgent(null);
+  }, [disconnectBackendWebSocket]);
 
   return {
     isConnected,
     isListening,
     isSpeaking,
     isProcessing,
+    currentAgent,
     transcript,
     result,
     error,

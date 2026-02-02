@@ -74,7 +74,7 @@ export function VoiceButton({ userId, apiUrl }: VoiceButtonProps) {
         color: "bg-yellow-500",
         pulseColor: "bg-yellow-400",
         icon: "processing",
-        label: "Processing...",
+        label: voice.currentAgent ? `Contacting ${voice.currentAgent}...` : "Processing...",
       };
     }
     if (voice.isListening) {
