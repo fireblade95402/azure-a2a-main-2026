@@ -3682,7 +3682,7 @@ Answer with just JSON:
                     
                     elif route_selection.approach == "workflows_parallel" and route_selection.selected_workflows:
                         # Execute multiple workflows in parallel
-                        import asyncio
+                        # Note: asyncio is already imported at module level
                         
                         parallel_workflow_names = route_selection.selected_workflows
                         log_debug(f"🔀 [Multi-Workflow] Parallel execution of {len(parallel_workflow_names)} workflows: {parallel_workflow_names}")

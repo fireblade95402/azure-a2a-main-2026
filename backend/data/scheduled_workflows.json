@@ -27,7 +27,8 @@
     "max_retries": 3,
     "max_runs": 1,
     "description": null,
-    "tags": []
+    "tags": [],
+    "workflow_goal": null
   },
   {
     "id": "3ae7dbc1-bb64-426c-9a9a-c9fb31500452",
@@ -57,7 +58,8 @@
     "max_retries": 3,
     "max_runs": 1,
     "description": null,
-    "tags": []
+    "tags": [],
+    "workflow_goal": null
   },
   {
     "id": "57d1500d-3fd3-43b9-8980-882085ef4eb9",
@@ -87,7 +89,8 @@
     "max_retries": 3,
     "max_runs": 1,
     "description": null,
-    "tags": []
+    "tags": [],
+    "workflow_goal": null
   },
   {
     "id": "389f1b1e-75df-4aaa-8a5a-b11bc76621e4",
@@ -117,7 +120,8 @@
     "max_retries": 3,
     "max_runs": 1,
     "description": null,
-    "tags": []
+    "tags": [],
+    "workflow_goal": null
   },
   {
     "id": "9066e06d-0791-4a1a-9a7a-e4c780893578",
@@ -147,6 +151,7 @@
     "max_retries": 3,
     "max_runs": 1,
     "description": null,
-    "tags": []
+    "tags": [],
+    "workflow_goal": null
   }
 ]

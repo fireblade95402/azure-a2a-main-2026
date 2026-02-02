@@ -1,0 +1,15 @@
+[project]
+name = "twilio-sms-agent"
+version = "1.0.0"
+description = "Twilio SMS Agent for A2A - sends SMS notifications via Twilio API"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "a2a-sdk[http-server]>=0.2.6",
+    "twilio>=9.0.0",
+    "uvicorn>=0.34.2",
+    "click>=8.0.0",
+    "python-dotenv>=1.0.0",
+    "starlette>=0.35.0",
+    "httpx>=0.25.0",
+]

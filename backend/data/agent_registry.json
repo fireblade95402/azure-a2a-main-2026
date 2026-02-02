@@ -1648,5 +1648,78 @@
     "supportsAuthenticatedExtendedCard": null,
     "url": "http://localhost:9040/",
     "version": "1.0.0"
+  },
+  {
+    "additionalInterfaces": null,
+    "capabilities": {
+      "extensions": null,
+      "pushNotifications": null,
+      "stateTransitionHistory": null,
+      "streaming": true
+    },
+    "defaultInputModes": [
+      "text"
+    ],
+    "defaultOutputModes": [
+      "text"
+    ],
+    "description": "A notification agent that sends SMS text messages via Twilio. Use this agent to deliver workflow results, send alerts, or notify users via SMS. Ideal as the final step in a workflow to deliver summaries or confirmations to users' phones.",
+    "documentationUrl": null,
+    "iconUrl": null,
+    "name": "Twilio SMS Agent",
+    "preferredTransport": "JSONRPC",
+    "protocolVersion": "0.3.0",
+    "provider": null,
+    "security": null,
+    "securitySchemes": null,
+    "signatures": null,
+    "skills": [
+      {
+        "description": "Send an SMS text message to a phone number. Can receive message content from previous workflow steps and deliver it via SMS.",
+        "examples": [
+          "Send SMS: Your account balance is $1,234.56",
+          "Text me a summary of the analysis",
+          "Send a notification via SMS",
+          "Message +15147715943: Hello from the workflow!"
+        ],
+        "id": "send_sms",
+        "inputModes": null,
+        "name": "Send SMS Message",
+        "outputModes": null,
+        "security": null,
+        "tags": [
+          "sms",
+          "text",
+          "message",
+          "notification",
+          "twilio",
+          "phone"
+        ]
+      },
+      {
+        "description": "Notify a user via SMS with workflow results or important updates. Perfect for the final step in a workflow to deliver results.",
+        "examples": [
+          "Notify me when the task is complete",
+          "Send the final results via text",
+          "Alert the user with the summary",
+          "Deliver the workflow output by SMS"
+        ],
+        "id": "notify_user",
+        "inputModes": null,
+        "name": "User Notification",
+        "outputModes": null,
+        "security": null,
+        "tags": [
+          "notify",
+          "alert",
+          "update",
+          "result",
+          "delivery"
+        ]
+      }
+    ],
+    "supportsAuthenticatedExtendedCard": null,
+    "url": "http://localhost:8015/",
+    "version": "1.0.0"
   }
 ]
