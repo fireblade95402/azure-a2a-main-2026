@@ -15,9 +15,16 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Build argument for API URL (baked into the build)
+# Build arguments for Next.js public env vars (baked into the build)
 ARG NEXT_PUBLIC_A2A_API_URL
+ARG NEXT_PUBLIC_AZURE_AI_FOUNDRY_PROJECT_ENDPOINT
+ARG NEXT_PUBLIC_VOICE_MODEL=gpt-realtime
+ARG AZURE_OPENAI_GPT_API_KEY
+
 ENV NEXT_PUBLIC_A2A_API_URL=$NEXT_PUBLIC_A2A_API_URL
+ENV NEXT_PUBLIC_AZURE_AI_FOUNDRY_PROJECT_ENDPOINT=$NEXT_PUBLIC_AZURE_AI_FOUNDRY_PROJECT_ENDPOINT
+ENV NEXT_PUBLIC_VOICE_MODEL=$NEXT_PUBLIC_VOICE_MODEL
+ENV AZURE_OPENAI_GPT_API_KEY=$AZURE_OPENAI_GPT_API_KEY
 
 # Build the application
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -29,6 +36,10 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+
+# Runtime env vars (can be overridden at container runtime)
+ARG AZURE_OPENAI_GPT_API_KEY
+ENV AZURE_OPENAI_GPT_API_KEY=$AZURE_OPENAI_GPT_API_KEY
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
