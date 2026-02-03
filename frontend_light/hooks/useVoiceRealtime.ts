@@ -138,7 +138,8 @@ export function useVoiceRealtime(config: VoiceRealtimeConfig): VoiceRealtimeHook
   // Connect to backend WebSocket for status events
   const connectBackendWebSocket = useCallback(() => {
     // Connect to the /events WebSocket endpoint with tenantId parameter
-    const wsUrl = `ws://localhost:8080/events?tenantId=${encodeURIComponent(config.userId)}`;
+    // Convert http(s) to ws(s) for WebSocket connection
+    const wsUrl = `${config.apiUrl.replace(/^http/, 'ws')}/events?tenantId=${encodeURIComponent(config.userId)}`;
     console.log("[VoiceRealtime] Connecting to backend WebSocket:", wsUrl);
 
     const ws = new WebSocket(wsUrl);
