@@ -270,3 +270,45 @@ export async function disableSessionAgent(agentUrl: string): Promise<boolean> {
   }
 }
 
+// ============ Workflow Activation (Session-based) ============
+
+const ACTIVATED_WORKFLOWS_KEY = 'a2a_activated_workflows';
+
+export function getActivatedWorkflowIds(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const stored = sessionStorage.getItem(ACTIVATED_WORKFLOWS_KEY);
+    if (stored) {
+      return new Set(JSON.parse(stored));
+    }
+  } catch (error) {
+    console.error('[API] Failed to get activated workflows:', error);
+  }
+  return new Set();
+}
+
+export function saveActivatedWorkflowIds(ids: Set<string>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(ACTIVATED_WORKFLOWS_KEY, JSON.stringify(Array.from(ids)));
+  } catch (error) {
+    console.error('[API] Failed to save activated workflows:', error);
+  }
+}
+
+export function activateWorkflow(workflowId: string): void {
+  const ids = getActivatedWorkflowIds();
+  ids.add(workflowId);
+  saveActivatedWorkflowIds(ids);
+}
+
+export function deactivateWorkflow(workflowId: string): void {
+  const ids = getActivatedWorkflowIds();
+  ids.delete(workflowId);
+  saveActivatedWorkflowIds(ids);
+}
+
+export function isWorkflowActivated(workflowId: string): boolean {
+  return getActivatedWorkflowIds().has(workflowId);
+}
+

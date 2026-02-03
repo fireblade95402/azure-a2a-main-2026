@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { getUserWorkflows, getAgents, getSessionAgents, enableSessionAgent, disableSessionAgent, Workflow, Agent, UserInfo } from "@/lib/api";
-import { WorkflowCard } from "./WorkflowCard";
+import { getUserWorkflows, getAgents, getSessionAgents, enableSessionAgent, disableSessionAgent, getActivatedWorkflowIds, saveActivatedWorkflowIds, Workflow, Agent, UserInfo } from "@/lib/api";
+import { WorkflowCard, getRequiredAgents, AgentStatus } from "./WorkflowCard";
 import { AgentCard } from "./AgentCard";
 import { VoiceButton } from "./VoiceButton";
 
@@ -30,6 +30,8 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [enabledAgentUrls, setEnabledAgentUrls] = useState<Set<string>>(new Set());
   const [loadingAgentUrls, setLoadingAgentUrls] = useState<Set<string>>(new Set());
+  const [activatedWorkflowIds, setActivatedWorkflowIds] = useState<Set<string>>(new Set());
+  const [loadingWorkflowIds, setLoadingWorkflowIds] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<VoiceMessage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +40,74 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
   const handleNewMessage = useCallback((message: VoiceMessage) => {
     setMessages(prev => [message, ...prev]); // Add to beginning (newest first)
   }, []);
+
+  // Toggle workflow activation - auto-enables required agents
+  const handleToggleWorkflow = useCallback(async (workflow: Workflow) => {
+    const workflowId = workflow.id;
+    if (!workflowId) return;
+
+    setLoadingWorkflowIds(prev => {
+      const next = new Set(Array.from(prev));
+      next.add(workflowId);
+      return next;
+    });
+
+    try {
+      const isCurrentlyActivated = activatedWorkflowIds.has(workflowId);
+      
+      if (isCurrentlyActivated) {
+        // Deactivate workflow - just update local state, don't disable agents
+        // (agents might be used by other workflows)
+        setActivatedWorkflowIds(prev => {
+          const next = new Set(Array.from(prev));
+          next.delete(workflowId);
+          saveActivatedWorkflowIds(next);
+          return next;
+        });
+      } else {
+        // Activate workflow and auto-enable required agents
+        const requiredAgents = getRequiredAgents(workflow, agents);
+        
+        // Enable each required agent that is online and not already enabled
+        for (const agentStatus of requiredAgents) {
+          if (agentStatus.isOnline) {
+            const matchingAgent = agents.find(a => 
+              a.name.toLowerCase() === agentStatus.agentName.toLowerCase() ||
+              a.name.toLowerCase().includes(agentStatus.agentName.toLowerCase()) ||
+              agentStatus.agentName.toLowerCase().includes(a.name.toLowerCase())
+            );
+            
+            if (matchingAgent && !enabledAgentUrls.has(matchingAgent.url)) {
+              const success = await enableSessionAgent(matchingAgent);
+              if (success) {
+                setEnabledAgentUrls(prev => {
+                  const next = new Set(Array.from(prev));
+                  next.add(matchingAgent.url);
+                  return next;
+                });
+              }
+            }
+          }
+        }
+
+        // Mark workflow as activated
+        setActivatedWorkflowIds(prev => {
+          const next = new Set(Array.from(prev));
+          next.add(workflowId);
+          saveActivatedWorkflowIds(next);
+          return next;
+        });
+      }
+    } catch (err) {
+      console.error("Failed to toggle workflow:", err);
+    } finally {
+      setLoadingWorkflowIds(prev => {
+        const next = new Set(Array.from(prev));
+        next.delete(workflowId);
+        return next;
+      });
+    }
+  }, [activatedWorkflowIds, agents, enabledAgentUrls]);
 
   // Toggle agent enabled/disabled
   const handleToggleAgent = useCallback(async (agent: Agent) => {
@@ -103,6 +173,10 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
       // Track which agents are enabled in this session
       const enabledUrls = new Set(sessionAgentsData.map(a => a.url).filter(Boolean));
       setEnabledAgentUrls(enabledUrls);
+      
+      // Restore activated workflows from sessionStorage
+      const storedActivatedWorkflows = getActivatedWorkflowIds();
+      setActivatedWorkflowIds(storedActivatedWorkflows);
     } catch (err) {
       console.error("Failed to load data:", err);
       setError("Failed to load data. Please try again.");
@@ -215,8 +289,13 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
                   />
                 </svg>
                 Workflows
-                <span className="hidden sm:inline-flex items-center justify-center px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-full">
-                  {workflows.length}
+                <span className="hidden sm:inline-flex items-center justify-center px-2 py-0.5 text-xs font-medium rounded-full"
+                  style={{
+                    backgroundColor: activatedWorkflowIds.size > 0 ? 'rgb(220, 252, 231)' : 'rgb(243, 244, 246)',
+                    color: activatedWorkflowIds.size > 0 ? 'rgb(21, 128, 61)' : 'rgb(75, 85, 99)',
+                  }}
+                >
+                  {activatedWorkflowIds.size > 0 ? `${activatedWorkflowIds.size} active` : workflows.length}
                 </span>
               </span>
             </button>
@@ -316,7 +395,14 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
             </button>
           </div>
         ) : activeTab === "workflows" ? (
-          <WorkflowsTab workflows={workflows} />
+          <WorkflowsTab 
+            workflows={workflows}
+            agents={agents}
+            activatedWorkflowIds={activatedWorkflowIds}
+            loadingWorkflowIds={loadingWorkflowIds}
+            enabledAgentUrls={enabledAgentUrls}
+            onToggleWorkflow={handleToggleWorkflow}
+          />
         ) : activeTab === "agents" ? (
           <AgentsTab 
             onlineAgents={onlineAgents} 
@@ -337,14 +423,30 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
           apiUrl={API_BASE_URL} 
           onNewMessage={handleNewMessage}
           disabled={enabledAgentCount === 0}
-          disabledMessage="Enable at least one agent to start"
+          disabledMessage="Activate a workflow or enable agents to start"
         />
       )}
     </div>
   );
 }
 
-function WorkflowsTab({ workflows }: { workflows: Workflow[] }) {
+function WorkflowsTab({ 
+  workflows, 
+  agents,
+  activatedWorkflowIds,
+  loadingWorkflowIds,
+  enabledAgentUrls,
+  onToggleWorkflow,
+}: { 
+  workflows: Workflow[];
+  agents: Agent[];
+  activatedWorkflowIds: Set<string>;
+  loadingWorkflowIds: Set<string>;
+  enabledAgentUrls: Set<string>;
+  onToggleWorkflow: (workflow: Workflow) => void;
+}) {
+  const activatedCount = activatedWorkflowIds.size;
+  
   if (workflows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -373,11 +475,48 @@ function WorkflowsTab({ workflows }: { workflows: Workflow[] }) {
     );
   }
 
+  // Get agent statuses for each workflow
+  const getWorkflowAgentStatuses = (workflow: Workflow): AgentStatus[] => {
+    const requiredAgents = getRequiredAgents(workflow, agents);
+    return requiredAgents.map(agentStatus => {
+      const matchingAgent = agents.find(a => 
+        a.name.toLowerCase() === agentStatus.agentName.toLowerCase() ||
+        a.name.toLowerCase().includes(agentStatus.agentName.toLowerCase()) ||
+        agentStatus.agentName.toLowerCase().includes(a.name.toLowerCase())
+      );
+      return {
+        ...agentStatus,
+        isEnabled: matchingAgent ? enabledAgentUrls.has(matchingAgent.url) : false,
+      };
+    });
+  };
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-      {workflows.map((workflow) => (
-        <WorkflowCard key={workflow.id} workflow={workflow} />
-      ))}
+    <div className="space-y-4">
+      {/* Info bar */}
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Tap a workflow to activate it. Required agents will be enabled automatically.
+        </p>
+        {activatedCount > 0 && (
+          <span className="px-3 py-1 text-sm font-medium text-green-700 bg-green-100 dark:text-green-400 dark:bg-green-900/50 rounded-full">
+            {activatedCount} activated
+          </span>
+        )}
+      </div>
+      
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        {workflows.map((workflow) => (
+          <WorkflowCard 
+            key={workflow.id} 
+            workflow={workflow}
+            isActivated={activatedWorkflowIds.has(workflow.id)}
+            isLoading={loadingWorkflowIds.has(workflow.id)}
+            agentStatuses={getWorkflowAgentStatuses(workflow)}
+            onToggle={() => onToggleWorkflow(workflow)}
+          />
+        ))}
+      </div>
     </div>
   );
 }

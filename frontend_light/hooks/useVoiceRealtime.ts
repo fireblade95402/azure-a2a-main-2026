@@ -227,6 +227,18 @@ export function useVoiceRealtime(config: VoiceRealtimeConfig): VoiceRealtimeHook
         headers['Authorization'] = `Bearer ${token}`;
       }
       
+      // Get activated workflow IDs from sessionStorage
+      let activatedWorkflowIds: string[] | undefined;
+      try {
+        const stored = typeof window !== 'undefined' ? sessionStorage.getItem('a2a_activated_workflows') : null;
+        if (stored) {
+          activatedWorkflowIds = JSON.parse(stored);
+          console.log("[VoiceRealtime] Including activated workflows:", activatedWorkflowIds);
+        }
+      } catch (e) {
+        console.warn("[VoiceRealtime] Failed to get activated workflows:", e);
+      }
+      
       const response = await fetch(`${config.apiUrl}/api/query`, {
         method: "POST",
         headers,
@@ -235,6 +247,7 @@ export function useVoiceRealtime(config: VoiceRealtimeConfig): VoiceRealtimeHook
           user_id: config.userId,
           session_id: config.userId,  // Use userId as session_id so WebSocket events route correctly
           timeout: 120,
+          activated_workflow_ids: activatedWorkflowIds,
         }),
       });
 

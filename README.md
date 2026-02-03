@@ -295,6 +295,7 @@ az login
 
 # Start the backend API server
 python backend_production.py
+python start_websocket.py
 ```
 
 **In a separate terminal, start the WebSocket server:**

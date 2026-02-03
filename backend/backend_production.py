@@ -1179,6 +1179,7 @@ def main():
         conversation_id: Optional[str] = None  # Optional conversation ID
         timeout: int = 300  # Timeout in seconds (default 5 min)
         enable_routing: bool = True  # Whether to enable intelligent workflow routing
+        activated_workflow_ids: Optional[List[str]] = None  # Optional list of activated workflow IDs to filter by
     
     @app.post("/api/query")
     async def execute_query(
@@ -1271,6 +1272,12 @@ def main():
             # Filter workflows by user_id - only include workflows belonging to this user
             user_workflows = [w for w in all_workflows if w.user_id == request.user_id]
             print(f"[Query API] 👤 Filtered to {len(user_workflows)} workflows for user '{request.user_id}' (out of {len(all_workflows)} total)")
+            
+            # Further filter by activated workflow IDs if provided
+            if request.activated_workflow_ids:
+                activated_ids = set(request.activated_workflow_ids)
+                user_workflows = [w for w in user_workflows if w.id in activated_ids]
+                print(f"[Query API] 🎯 Filtered to {len(user_workflows)} activated workflows (from {len(activated_ids)} activated IDs)")
             
             for w in user_workflows:
                 if w.steps:
