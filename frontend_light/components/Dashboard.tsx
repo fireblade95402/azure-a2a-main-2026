@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { getUserWorkflows, getAgents, getSessionAgents, enableSessionAgent, disableSessionAgent, getActivatedWorkflowIds, saveActivatedWorkflowIds, Workflow, Agent, UserInfo } from "@/lib/api";
+import { getUserWorkflows, getAgents, getSessionAgents, enableSessionAgent, disableSessionAgent, getActivatedWorkflowIds, saveActivatedWorkflowIds, getWorkflowSchedules, toggleSchedule, Workflow, Agent, UserInfo, ScheduleInfo, WorkflowScheduleMap } from "@/lib/api";
 import { WorkflowCard, getRequiredAgents, AgentStatus } from "./WorkflowCard";
 import { AgentCard } from "./AgentCard";
 import { VoiceButton } from "./VoiceButton";
@@ -31,6 +31,7 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
   const [enabledAgentUrls, setEnabledAgentUrls] = useState<Set<string>>(new Set());
   const [loadingAgentUrls, setLoadingAgentUrls] = useState<Set<string>>(new Set());
   const [activatedWorkflowIds, setActivatedWorkflowIds] = useState<Set<string>>(new Set());
+  const [workflowSchedules, setWorkflowSchedules] = useState<WorkflowScheduleMap>(new Map());
   const [loadingWorkflowIds, setLoadingWorkflowIds] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<VoiceMessage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -156,19 +157,44 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
     }
   }, [enabledAgentUrls]);
 
+  // Toggle schedule enabled/disabled
+  const handleToggleSchedule = useCallback(async (scheduleInfo: ScheduleInfo) => {
+    const newEnabled = !scheduleInfo.enabled;
+    
+    // Optimistic update
+    setWorkflowSchedules(prev => {
+      const next = new Map(prev);
+      next.set(scheduleInfo.workflow_id, { ...scheduleInfo, enabled: newEnabled });
+      return next;
+    });
+
+    const success = await toggleSchedule(scheduleInfo.id, newEnabled);
+    
+    if (!success) {
+      // Revert on failure
+      setWorkflowSchedules(prev => {
+        const next = new Map(prev);
+        next.set(scheduleInfo.workflow_id, scheduleInfo);
+        return next;
+      });
+    }
+  }, []);
+
   const loadData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const [workflowsData, agentsData, sessionAgentsData] = await Promise.all([
+      const [workflowsData, agentsData, sessionAgentsData, schedulesMap] = await Promise.all([
         getUserWorkflows(),
         getAgents(),
         getSessionAgents(),
+        getWorkflowSchedules(),
       ]);
       
       setWorkflows(workflowsData);
       setAgents(agentsData);
+      setWorkflowSchedules(schedulesMap);
       
       // Track which agents are enabled in this session
       const enabledUrls = new Set(sessionAgentsData.map(a => a.url).filter(Boolean));
@@ -433,8 +459,10 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
             agents={agents}
             activatedWorkflowIds={activatedWorkflowIds}
             loadingWorkflowIds={loadingWorkflowIds}
+            workflowSchedules={workflowSchedules}
             enabledAgentUrls={enabledAgentUrls}
             onToggleWorkflow={handleToggleWorkflow}
+            onToggleSchedule={handleToggleSchedule}
           />
         ) : activeTab === "agents" ? (
           <AgentsTab 
@@ -468,15 +496,19 @@ function WorkflowsTab({
   agents,
   activatedWorkflowIds,
   loadingWorkflowIds,
+  workflowSchedules,
   enabledAgentUrls,
   onToggleWorkflow,
+  onToggleSchedule,
 }: { 
   workflows: Workflow[];
   agents: Agent[];
   activatedWorkflowIds: Set<string>;
   loadingWorkflowIds: Set<string>;
+  workflowSchedules: WorkflowScheduleMap;
   enabledAgentUrls: Set<string>;
   onToggleWorkflow: (workflow: Workflow) => void;
+  onToggleSchedule: (scheduleInfo: ScheduleInfo) => void;
 }) {
   if (workflows.length === 0) {
     return (
@@ -530,16 +562,21 @@ function WorkflowsTab({
       </p>
       
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {workflows.map((workflow) => (
-          <WorkflowCard 
-            key={workflow.id} 
-            workflow={workflow}
-            isActivated={activatedWorkflowIds.has(workflow.id)}
-            isLoading={loadingWorkflowIds.has(workflow.id)}
-            agentStatuses={getWorkflowAgentStatuses(workflow)}
-            onToggle={() => onToggleWorkflow(workflow)}
-          />
-        ))}
+        {workflows.map((workflow) => {
+          const scheduleInfo = workflowSchedules.get(workflow.id);
+          return (
+            <WorkflowCard 
+              key={workflow.id} 
+              workflow={workflow}
+              isActivated={activatedWorkflowIds.has(workflow.id)}
+              isLoading={loadingWorkflowIds.has(workflow.id)}
+              scheduleInfo={scheduleInfo}
+              agentStatuses={getWorkflowAgentStatuses(workflow)}
+              onToggle={() => onToggleWorkflow(workflow)}
+              onToggleSchedule={scheduleInfo ? () => onToggleSchedule(scheduleInfo) : undefined}
+            />
+          );
+        })}
       </div>
     </div>
   );

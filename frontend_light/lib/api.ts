@@ -143,6 +143,68 @@ export async function getUserWorkflows(): Promise<Workflow[]> {
   }
 }
 
+// Schedule info (lightweight)
+export interface ScheduleInfo {
+  id: string;
+  workflow_id: string;
+  schedule_type: string;
+  enabled: boolean;
+  next_run?: string;
+  workflow_name?: string;
+}
+
+// Map of workflow_id -> ScheduleInfo for workflows that have schedules
+export type WorkflowScheduleMap = Map<string, ScheduleInfo>;
+
+export async function getWorkflowSchedules(): Promise<WorkflowScheduleMap> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/schedules`, {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      return new Map();
+    }
+
+    const data = await response.json();
+    const schedules: ScheduleInfo[] = data.schedules || [];
+    
+    // Return map of workflow_id -> schedule info
+    const scheduleMap = new Map<string, ScheduleInfo>();
+    for (const schedule of schedules) {
+      // If multiple schedules for same workflow, prefer enabled ones
+      const existing = scheduleMap.get(schedule.workflow_id);
+      if (!existing || (schedule.enabled && !existing.enabled)) {
+        scheduleMap.set(schedule.workflow_id, schedule);
+      }
+    }
+    return scheduleMap;
+  } catch (error) {
+    console.error('[API] Failed to get schedules:', error);
+    return new Map();
+  }
+}
+
+export async function toggleSchedule(scheduleId: string, enabled: boolean): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/schedules/${scheduleId}/toggle?enabled=${enabled}`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      console.error('[API] Failed to toggle schedule:', response.statusText);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('[API] Failed to toggle schedule:', error);
+    return false;
+  }
+}
+
 export async function getAgents(): Promise<Agent[]> {
   try {
     const response = await fetch(`${API_BASE_URL}/agents`, {
