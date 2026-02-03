@@ -93,66 +93,66 @@ def create_a2a_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT):
     """Create A2A server application for Azure Foundry Deep Search Knowledge agent."""
     global agent_executor_instance
     
-    # Define agent skills for deep search knowledge support
+    # Define agent skills for web search and knowledge retrieval
     skills = [
         AgentSkill(
-            id='document_search',
-            name='Document Search',
-            description="Deep search through customer support documents including account management, billing, payments, complaints, and technical support",
-            tags=['search', 'documents', 'knowledge-base', 'customer-support'],
+            id='web_search',
+            name='Web Search',
+            description="Search the internet for current information, news, facts, and real-time data on any topic",
+            tags=['search', 'web', 'internet', 'research', 'current-events'],
             examples=[
-                'How do I close my account?',
-                'What are the fees for wire transfers?',
-                'How to dispute a charge on my account?',
-                'What do I do if I suspect fraud on my card?'
+                'What is the latest news on Toronto Raptors trades?',
+                'Current weather in New York',
+                'Latest stock prices for Apple',
+                'Recent developments in AI technology'
             ],
         ),
         AgentSkill(
-            id='account_support',
-            name='Account Support',
-            description="Comprehensive support for account opening, closure, and management procedures",
-            tags=['account', 'opening', 'closure', 'management'],
+            id='news_research',
+            name='News & Research',
+            description="Find current news articles, press releases, and recent developments on any topic",
+            tags=['news', 'current-events', 'research', 'articles'],
             examples=[
-                'Steps to open a new account',
-                'Account closure procedures',
-                'Required documents for account setup',
-                'Account management best practices'
+                'Latest news on climate change',
+                'Recent political developments',
+                'Breaking news in technology',
+                'Current market trends'
             ],
         ),
         AgentSkill(
-            id='billing_payments',
-            name='Billing & Payments',
-            description="Information about billing, payments, fees, and charges",
-            tags=['billing', 'payments', 'fees', 'charges'],
+            id='fact_checking',
+            name='Fact Checking',
+            description="Verify information and find authoritative sources on any topic",
+            tags=['facts', 'verification', 'sources', 'research'],
             examples=[
-                'Understanding monthly fees',
-                'Payment methods and options',
-                'How to set up automatic payments',
-                'Fee schedule and billing cycle information'
+                'Is this statement true?',
+                'Find sources for this claim',
+                'Verify this information',
+                'What do experts say about this?'
             ],
         ),
         AgentSkill(
-            id='fraud_security',
-            name='Fraud & Security',
-            description="Guidance on fraud prevention, unauthorized transactions, and security measures",
-            tags=['fraud', 'security', 'unauthorized', 'protection'],
+            id='real_time_data',
+            name='Real-Time Data',
+            description="Access current data including weather, sports scores, stock prices, and live updates",
+            tags=['real-time', 'live', 'current', 'data'],
             examples=[
-                'What to do if my card is stolen',
-                'Reporting unauthorized transactions',
-                'Security features and protections',
-                'Fraud prevention tips'
+                'Current temperature in Tokyo',
+                'Live sports scores',
+                'Latest stock market updates',
+                'Real-time traffic information'
             ],
         ),
         AgentSkill(
-            id='technical_support',
-            name='Technical Support',
-            description="Online banking, mobile app, and technical assistance",
-            tags=['technical', 'online-banking', 'mobile', 'troubleshooting'],
+            id='general_knowledge',
+            name='General Knowledge',
+            description="Search for information on any topic including history, science, culture, and more",
+            tags=['knowledge', 'information', 'research', 'general'],
             examples=[
-                'Online banking login issues',
-                'Mobile app troubleshooting',
-                'Password reset procedures',
-                'Technical feature guidance'
+                'Information about the Roman Empire',
+                'How does photosynthesis work?',
+                'History of jazz music',
+                'Facts about space exploration'
             ],
         )
     ]
@@ -161,8 +161,8 @@ def create_a2a_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT):
 
     # Create agent card
     agent_card = AgentCard(
-        name='AI Foundry Deep Search Knowledge Agent',
-        description="An intelligent customer support agent powered by Azure AI Foundry with deep search capabilities through comprehensive support documentation covering account management, billing, payments, fraud protection, and technical support.",
+        name='AI Foundry Web Search Agent',
+        description="An intelligent web search agent powered by Azure AI Foundry with capabilities to search the internet for current information, news, facts, real-time data, and knowledge on any topic.",
         #url=f'http://{host}:{port}/',
         #url=f'https://agent1.ngrok.app/agent3/',
         url=resolve_agent_url(resolved_host_for_url, port),

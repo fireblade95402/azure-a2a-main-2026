@@ -264,16 +264,21 @@ export function FileHistory({ className, onFileSelect, onFilesLoaded, conversati
     (window as any).addFileToHistory = addFileToHistory
   }, [addFileToHistory])
 
-  const removeFile = async (fileId: string) => {
+  const removeFile = async (fileId: string, filename?: string) => {
     // Optimistically remove from UI
     setFiles(prev => prev.filter(file => file.id !== fileId))
     
-    // Try to delete from backend (blob storage + local filesystem)
+    // Try to delete from backend (blob storage + local filesystem + memory index)
     try {
       const sessionId = getOrCreateSessionId()
       const backendUrl = process.env.NEXT_PUBLIC_A2A_API_URL || 'http://localhost:12000'
       
-      const response = await fetch(`${backendUrl}/api/files/${fileId}`, {
+      // Include filename in query params to also delete from memory index
+      const url = filename 
+        ? `${backendUrl}/api/files/${fileId}?filename=${encodeURIComponent(filename)}`
+        : `${backendUrl}/api/files/${fileId}`
+      
+      const response = await fetch(url, {
         method: 'DELETE',
         headers: {
           'X-Session-ID': sessionId
@@ -368,14 +373,18 @@ export function FileHistory({ className, onFileSelect, onFilesLoaded, conversati
     const filesToDelete = [...files]
     setFiles([])
     
-    // Try to delete all files from backend
+    // Try to delete all files from backend (including memory index)
     try {
       const sessionId = getOrCreateSessionId()
       const backendUrl = process.env.NEXT_PUBLIC_A2A_API_URL || 'http://localhost:12000'
       
-      // Delete all files in parallel
-      const deletePromises = filesToDelete.map(file =>
-        fetch(`${backendUrl}/api/files/${file.id}`, {
+      // Delete all files in parallel (include filename for memory cleanup)
+      const deletePromises = filesToDelete.map(file => {
+        const url = file.filename 
+          ? `${backendUrl}/api/files/${file.id}?filename=${encodeURIComponent(file.filename)}`
+          : `${backendUrl}/api/files/${file.id}`
+        
+        return fetch(url, {
           method: 'DELETE',
           headers: {
             'X-Session-ID': sessionId
@@ -386,7 +395,7 @@ export function FileHistory({ className, onFileSelect, onFilesLoaded, conversati
           console.log(`[FileHistory] Failed to delete ${file.filename}:`, err)
           return { success: true } // Treat as success
         })
-      )
+      })
       
       const results = await Promise.all(deletePromises)
       const successCount = results.filter(r => r.success).length
@@ -844,7 +853,7 @@ export function FileHistory({ className, onFileSelect, onFilesLoaded, conversati
                             <button
                               onClick={(e) => {
                                 e.stopPropagation()
-                                removeFile(file.id)
+                                removeFile(file.id, file.filename)
                               }}
                               className="p-1.5 hover:bg-destructive/10 rounded text-muted-foreground hover:text-destructive transition-colors"
                             >

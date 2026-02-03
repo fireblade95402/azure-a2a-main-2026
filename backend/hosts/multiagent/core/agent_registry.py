@@ -53,10 +53,13 @@ class AgentRegistry:
         self.remote_agent_connections.clear()
         self.agents = ''
         
+        print(f"🔷 [SET_SESSION_AGENTS] Received {len(session_agents)} agents to register")
+        
         # Register each session agent
         for agent_data in session_agents:
             agent_url = agent_data.get('url')
             agent_name = agent_data.get('name', 'Unknown')
+            print(f"🔷 [SET_SESSION_AGENTS]   - Registering: {agent_name} @ {agent_url}")
             if agent_url:
                 try:
                     await self.retrieve_card(agent_url)
@@ -64,6 +67,9 @@ class AgentRegistry:
                 except Exception as e:
                     log_error(f"Failed to register session agent {agent_url}: {e}")
         
+        # Log what's in self.agents (the string used in the system prompt)
+        print(f"🔷 [SET_SESSION_AGENTS] Final self.cards has {len(self.cards)} agents: {list(self.cards.keys())}")
+        print(f"🔷 [SET_SESSION_AGENTS] self.agents string length: {len(self.agents)} chars")
         log_debug(f"Session has {len(self.cards)} agents: {list(self.cards.keys())}")
 
     def _find_agent_registry_path(self) -> Path:
@@ -260,6 +266,13 @@ class AgentRegistry:
                 agent_info['skills'] = skills_list
             
             agents.append(agent_info)
+        
+        # Log what agents are being returned (helps debug delegation issues)
+        if agents:
+            print(f"🔶 [LIST_REMOTE_AGENTS] Returning {len(agents)} agents: {[a['name'] for a in agents]}")
+        else:
+            print(f"🔶 [LIST_REMOTE_AGENTS] Returning EMPTY list - no agents available for this session!")
+        
         return agents
 
     def list_remote_agents_sync(self) -> List[Dict[str, Any]]:

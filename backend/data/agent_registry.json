@@ -131,23 +131,31 @@
     "version": "1.0.0"
   },
   {
-    "name": "AI Foundry Deep Search Knowledge Agent",
-    "description": "An intelligent customer support agent powered by Azure AI Foundry with deep search capabilities through comprehensive support documentation covering account management, billing, payments, fraud protection, and technical support.",
-    "version": "1.0.0",
-    "url": "http://localhost:8002/",
+    "additionalInterfaces": null,
+    "capabilities": {
+      "extensions": null,
+      "pushNotifications": null,
+      "stateTransitionHistory": null,
+      "streaming": true
+    },
     "defaultInputModes": [
       "text"
     ],
     "defaultOutputModes": [
       "text"
     ],
-    "capabilities": {
-      "streaming": true
-    },
+    "description": "An intelligent customer support agent powered by Azure AI Foundry with deep search capabilities through comprehensive support documentation covering account management, billing, payments, fraud protection, and technical support.",
+    "documentationUrl": null,
+    "iconUrl": null,
+    "name": "AI Foundry Deep Search Knowledge Agent",
+    "preferredTransport": "JSONRPC",
+    "protocolVersion": "0.3.0",
+    "provider": null,
+    "security": null,
+    "securitySchemes": null,
+    "signatures": null,
     "skills": [
       {
-        "id": "document_search",
-        "name": "Document Search",
         "description": "Deep search through customer support documents including account management, billing, payments, complaints, and technical support",
         "examples": [
           "How do I close my account?",
@@ -155,6 +163,11 @@
           "How to dispute a charge on my account?",
           "What do I do if I suspect fraud on my card?"
         ],
+        "id": "document_search",
+        "inputModes": null,
+        "name": "Document Search",
+        "outputModes": null,
+        "security": null,
         "tags": [
           "search",
           "documents",
@@ -163,8 +176,6 @@
         ]
       },
       {
-        "id": "account_support",
-        "name": "Account Support",
         "description": "Comprehensive support for account opening, closure, and management procedures",
         "examples": [
           "Steps to open a new account",
@@ -172,6 +183,11 @@
           "Required documents for account setup",
           "Account management best practices"
         ],
+        "id": "account_support",
+        "inputModes": null,
+        "name": "Account Support",
+        "outputModes": null,
+        "security": null,
         "tags": [
           "account",
           "opening",
@@ -180,8 +196,6 @@
         ]
       },
       {
-        "id": "billing_payments",
-        "name": "Billing & Payments",
         "description": "Information about billing, payments, fees, and charges",
         "examples": [
           "Understanding monthly fees",
@@ -189,6 +203,11 @@
           "How to set up automatic payments",
           "Fee schedule and billing cycle information"
         ],
+        "id": "billing_payments",
+        "inputModes": null,
+        "name": "Billing & Payments",
+        "outputModes": null,
+        "security": null,
         "tags": [
           "billing",
           "payments",
@@ -197,8 +216,6 @@
         ]
       },
       {
-        "id": "fraud_security",
-        "name": "Fraud & Security",
         "description": "Guidance on fraud prevention, unauthorized transactions, and security measures",
         "examples": [
           "What to do if my card is stolen",
@@ -206,6 +223,11 @@
           "Security features and protections",
           "Fraud prevention tips"
         ],
+        "id": "fraud_security",
+        "inputModes": null,
+        "name": "Fraud & Security",
+        "outputModes": null,
+        "security": null,
         "tags": [
           "fraud",
           "security",
@@ -214,8 +236,6 @@
         ]
       },
       {
-        "id": "technical_support",
-        "name": "Technical Support",
         "description": "Online banking, mobile app, and technical assistance",
         "examples": [
           "Online banking login issues",
@@ -223,6 +243,11 @@
           "Password reset procedures",
           "Technical feature guidance"
         ],
+        "id": "technical_support",
+        "inputModes": null,
+        "name": "Technical Support",
+        "outputModes": null,
+        "security": null,
         "tags": [
           "technical",
           "online-banking",
@@ -230,7 +255,10 @@
           "troubleshooting"
         ]
       }
-    ]
+    ],
+    "supportsAuthenticatedExtendedCard": null,
+    "url": "http://localhost:8002/",
+    "version": "1.0.0"
   },
   {
     "name": "Sentiment Analysis Agent",

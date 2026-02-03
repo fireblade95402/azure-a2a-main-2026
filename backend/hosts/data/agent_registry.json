@@ -1022,5 +1022,107 @@
         ]
       }
     ]
+  },
+  {
+    "name": "AI Foundry Deep Search Knowledge Agent",
+    "description": "An intelligent customer support agent powered by Azure AI Foundry with deep search capabilities through comprehensive support documentation covering account management, billing, payments, fraud protection, and technical support.",
+    "version": "1.0.0",
+    "url": "http://localhost:8002/",
+    "defaultInputModes": [
+      "text"
+    ],
+    "defaultOutputModes": [
+      "text"
+    ],
+    "capabilities": {
+      "streaming": true
+    },
+    "skills": [
+      {
+        "id": "document_search",
+        "name": "Document Search",
+        "description": "Deep search through customer support documents including account management, billing, payments, complaints, and technical support",
+        "examples": [
+          "How do I close my account?",
+          "What are the fees for wire transfers?",
+          "How to dispute a charge on my account?",
+          "What do I do if I suspect fraud on my card?"
+        ],
+        "tags": [
+          "search",
+          "documents",
+          "knowledge-base",
+          "customer-support"
+        ]
+      },
+      {
+        "id": "account_support",
+        "name": "Account Support",
+        "description": "Comprehensive support for account opening, closure, and management procedures",
+        "examples": [
+          "Steps to open a new account",
+          "Account closure procedures",
+          "Required documents for account setup",
+          "Account management best practices"
+        ],
+        "tags": [
+          "account",
+          "opening",
+          "closure",
+          "management"
+        ]
+      },
+      {
+        "id": "billing_payments",
+        "name": "Billing & Payments",
+        "description": "Information about billing, payments, fees, and charges",
+        "examples": [
+          "Understanding monthly fees",
+          "Payment methods and options",
+          "How to set up automatic payments",
+          "Fee schedule and billing cycle information"
+        ],
+        "tags": [
+          "billing",
+          "payments",
+          "fees",
+          "charges"
+        ]
+      },
+      {
+        "id": "fraud_security",
+        "name": "Fraud & Security",
+        "description": "Guidance on fraud prevention, unauthorized transactions, and security measures",
+        "examples": [
+          "What to do if my card is stolen",
+          "Reporting unauthorized transactions",
+          "Security features and protections",
+          "Fraud prevention tips"
+        ],
+        "tags": [
+          "fraud",
+          "security",
+          "unauthorized",
+          "protection"
+        ]
+      },
+      {
+        "id": "technical_support",
+        "name": "Technical Support",
+        "description": "Online banking, mobile app, and technical assistance",
+        "examples": [
+          "Online banking login issues",
+          "Mobile app troubleshooting",
+          "Password reset procedures",
+          "Technical feature guidance"
+        ],
+        "tags": [
+          "technical",
+          "online-banking",
+          "mobile",
+          "troubleshooting"
+        ]
+      }
+    ]
   }
 ]

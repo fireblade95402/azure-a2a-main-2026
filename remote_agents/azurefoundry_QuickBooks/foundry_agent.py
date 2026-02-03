@@ -525,18 +525,25 @@ Current date: {datetime.datetime.now().isoformat()}
         mcp_tool = getattr(self, '_mcp_tool', None)
         
         # Create run with tool_resources for MCP (as per Microsoft sample)
+        # IMPORTANT: max_prompt_tokens limits context window to prevent rate limit errors
+        # when MCP tool results accumulate (each tool call can add 2-3K tokens).
+        # truncation_strategy="last_messages" keeps the N most recent complete messages.
         if mcp_tool and hasattr(mcp_tool, 'resources'):
-            logger.info("🔧 Creating run with MCP tool_resources")
+            logger.info("🔧 Creating run with MCP tool_resources (max_prompt_tokens=25000)")
             run = client.runs.create(
                 thread_id=thread_id, 
                 agent_id=self.agent.id,
-                tool_resources=mcp_tool.resources
+                tool_resources=mcp_tool.resources,
+                max_prompt_tokens=25000,  # Limit context to prevent 39K+ token accumulation
+                truncation_strategy={"type": "last_messages", "last_messages": 15}
             )
         else:
-            logger.info("Creating run without MCP tool_resources")
+            logger.info("Creating run without MCP tool_resources (max_prompt_tokens=25000)")
             run = client.runs.create(
                 thread_id=thread_id, 
-                agent_id=self.agent.id
+                agent_id=self.agent.id,
+                max_prompt_tokens=25000,
+                truncation_strategy={"type": "last_messages", "last_messages": 15}
             )
         
         logger.info(f"   Run completed: {run.id}")

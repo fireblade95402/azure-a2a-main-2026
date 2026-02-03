@@ -734,5 +734,77 @@ class A2AMemoryService:
             log_memory_debug(f"Error getting processed filenames: {str(e)}")
             return set()
 
+    def delete_by_filename(self, session_id: str, filename: str) -> bool:
+        """Delete all memory chunks associated with a specific file.
+        
+        This removes all documents from the search index that were created
+        from processing the specified file for the given session.
+        
+        Args:
+            session_id: The session ID that owns the file
+            filename: The filename to delete chunks for
+            
+        Returns:
+            True if deletion was successful, False otherwise
+        """
+        if not self.search_client or not session_id or not filename:
+            log_memory_debug(f"Cannot delete: missing search_client, session_id, or filename")
+            return False
+        
+        try:
+            log_memory_debug(f"Deleting memory chunks for file '{filename}' in session {session_id}")
+            
+            # Query all documents for this session
+            filter_expr = f"session_id eq '{session_id}'"
+            
+            results = self.search_client.search(
+                search_text="*",
+                select=["id", "inbound_payload"],
+                filter=filter_expr,
+                top=1000
+            )
+            
+            # Find document IDs that match this filename
+            doc_ids_to_delete = []
+            filenames_found = set()  # Track unique filenames for debugging
+            for result in results:
+                try:
+                    inbound = result.get("inbound_payload", "{}")
+                    if isinstance(inbound, str):
+                        inbound = json.loads(inbound)
+                    
+                    doc_filename = inbound.get("filename", "")
+                    if doc_filename:
+                        filenames_found.add(doc_filename)
+                    
+                    # Exact match (case-sensitive)
+                    if doc_filename == filename:
+                        doc_ids_to_delete.append(result["id"])
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+            
+            if not doc_ids_to_delete:
+                log_memory_debug(f"No memory chunks found for file '{filename}'")
+                log_memory_debug(f"Files in memory for this session: {list(filenames_found)[:10]}")  # Show first 10
+                return True  # Nothing to delete is still success
+            
+            # Delete the documents
+            log_memory_debug(f"Deleting {len(doc_ids_to_delete)} chunks for file '{filename}'")
+            delete_actions = [{"@search.action": "delete", "id": doc_id} for doc_id in doc_ids_to_delete]
+            
+            upload_result = self.search_client.upload_documents(documents=delete_actions)
+            
+            # Check results
+            success_count = sum(1 for result in upload_result if result.succeeded)
+            log_success(f"Deleted {success_count}/{len(doc_ids_to_delete)} memory chunks for file '{filename}'")
+            
+            return success_count == len(doc_ids_to_delete)
+            
+        except Exception as e:
+            log_memory_debug(f"Error deleting memory chunks for file '{filename}': {str(e)}")
+            import traceback
+            log_memory_debug(f"Traceback: {traceback.format_exc()}")
+            return False
+
 # Create singleton instance
 a2a_memory_service = A2AMemoryService()

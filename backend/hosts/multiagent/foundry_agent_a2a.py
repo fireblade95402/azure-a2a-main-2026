@@ -2397,6 +2397,11 @@ Answer with just JSON:
                 thread_id=None,
                 target_agent_name=agent_name,
             )
+            
+            # Log the size of the contextualized message for debugging token usage
+            print(f"📏 [send_message] Message to {agent_name}: {len(contextualized_message)} chars (~{len(contextualized_message)//4} tokens)")
+            if len(contextualized_message) > 500:
+                print(f"   Preview: {contextualized_message[:200]}...")
 
             # Respect any active cooldown for this agent due to throttling
             try:
@@ -2684,6 +2689,7 @@ Answer with just JSON:
                                         'completion_tokens': data.get('completion_tokens', 0),
                                         'total_tokens': data.get('total_tokens', 0)
                                     }
+                                    print(f"💰 [send_message] Token usage from {agent_name}: prompt={data.get('prompt_tokens', 0)}, completion={data.get('completion_tokens', 0)}, total={data.get('total_tokens', 0)}")
                                     break
                     
                     if task.status.message:
@@ -3028,10 +3034,10 @@ Answer with just JSON:
                         
                         # Add to context if we found content
                         if content_summary:
-                            # Truncate long content for context efficiency (limit to 500 chars)
-                            max_chars = min(self.memory_summary_max_chars, 500)
-                            if len(content_summary) > max_chars:
-                                content_summary = content_summary[:max_chars] + "..."
+                            # Truncate long content for context efficiency
+                            # Use configured max_chars (default 2000) - enough for invoices/documents
+                            if len(content_summary) > self.memory_summary_max_chars:
+                                content_summary = content_summary[:self.memory_summary_max_chars] + "..."
                             context_parts.append(f"  {i}. From {agent_name}: {content_summary}")
                         else:
                             print(f"⚠️ No content found in memory result {i} from {agent_name}")

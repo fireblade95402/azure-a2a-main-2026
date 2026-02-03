@@ -94,10 +94,11 @@ class HTTPXClientWrapper:
         """ Instantiate the client. Call from the FastAPI startup hook."""
         # Some remote agents (e.g., image generators) stream results slowly, so we
         # need a generous read timeout to avoid dropping long-running SSE streams.
+        # Azure Container Apps with replicas=0 can take 30-60s for cold starts.
         self.async_client = httpx.AsyncClient(
             timeout=httpx.Timeout(
-                connect=10.0,
-                read=120.0,
+                connect=60.0,   # Increased from 10s to handle Azure Container Apps cold starts
+                read=180.0,     # Increased from 120s for long-running agent operations
                 write=120.0,
                 pool=30.0,
             )
@@ -2547,11 +2548,15 @@ Read-Host "Press Enter to close this window"
             }
 
     @app.delete("/api/files/{file_id}")
-    async def delete_file(file_id: str, request: Request):
-        """Delete a file from blob storage and local filesystem.
+    async def delete_file(file_id: str, request: Request, filename: str = None):
+        """Delete a file from blob storage, local filesystem, and memory index.
         
         Gracefully handles expired/missing files - always returns success
         even if the file doesn't exist (idempotent operation).
+        
+        Args:
+            file_id: The unique file ID
+            filename: Optional filename (query param) to also delete from memory index
         """
         try:
             # Extract session_id from header
@@ -2561,6 +2566,7 @@ Read-Host "Press Enter to close this window"
             
             deleted_from_blob = False
             deleted_from_local = False
+            deleted_from_memory = False
             
             # Try to delete from blob storage
             try:
@@ -2634,12 +2640,25 @@ Read-Host "Press Enter to close this window"
             except Exception as local_error:
                 print(f"[WARN] Local filesystem delete failed (this is OK): {local_error}")
             
+            # Try to delete from memory index (if filename provided)
+            if filename:
+                try:
+                    from hosts.multiagent.a2a_memory_service import a2a_memory_service
+                    deleted_from_memory = a2a_memory_service.delete_by_filename(session_id, filename)
+                    if deleted_from_memory:
+                        print(f"[INFO] Deleted memory chunks for file: {filename}")
+                    else:
+                        print(f"[INFO] No memory chunks found for file: {filename}")
+                except Exception as memory_error:
+                    print(f"[WARN] Memory index delete failed (this is OK): {memory_error}")
+            
             # Always return success (idempotent operation)
             return {
                 "success": True,
                 "deleted_from_blob": deleted_from_blob,
                 "deleted_from_local": deleted_from_local,
-                "message": "File deleted successfully" if (deleted_from_blob or deleted_from_local) else "File not found (might be expired or already deleted)"
+                "deleted_from_memory": deleted_from_memory,
+                "message": "File deleted successfully" if (deleted_from_blob or deleted_from_local or deleted_from_memory) else "File not found (might be expired or already deleted)"
             }
         
         except Exception as e:
