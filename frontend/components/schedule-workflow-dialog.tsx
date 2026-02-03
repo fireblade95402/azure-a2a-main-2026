@@ -77,6 +77,8 @@ interface ScheduleWorkflowDialogProps {
   trigger?: React.ReactNode
   // Callback when schedules change (create, delete, toggle)
   onScheduleChange?: () => void
+  // Force showing create form directly (skip the schedules list view)
+  showCreateFormDirectly?: boolean
 }
 
 const DAYS_OF_WEEK = [
@@ -107,7 +109,8 @@ export function ScheduleWorkflowDialog({
   workflowGoal: initialWorkflowGoal,
   sessionId: initialSessionId,
   trigger,
-  onScheduleChange
+  onScheduleChange,
+  showCreateFormDirectly = false,
 }: ScheduleWorkflowDialogProps) {
   // Support both controlled and uncontrolled modes
   const [internalOpen, setInternalOpen] = useState(false)
@@ -121,8 +124,8 @@ export function ScheduleWorkflowDialog({
   const [availableWorkflows, setAvailableWorkflows] = useState<WorkflowInfo[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // Auto-show create form when a workflow is pre-selected
-  const [showCreateForm, setShowCreateForm] = useState(!!initialWorkflowId)
+  // Auto-show create form when a workflow is pre-selected OR when explicitly requested
+  const [showCreateForm, setShowCreateForm] = useState(!!initialWorkflowId || showCreateFormDirectly)
   const [showHistory, setShowHistory] = useState(false)
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<RunHistoryItem | null>(null)
   
@@ -175,8 +178,8 @@ export function ScheduleWorkflowDialog({
   useEffect(() => {
     if (open) {
       loadData()
-      // Always show create form when a specific workflow is pre-selected
-      setShowCreateForm(!!initialWorkflowId)
+      // Always show create form when a specific workflow is pre-selected OR when explicitly requested
+      setShowCreateForm(!!initialWorkflowId || showCreateFormDirectly)
       // Sync workflow ID and name from props when dialog opens
       if (initialWorkflowId) {
         setSelectedWorkflowId(initialWorkflowId)

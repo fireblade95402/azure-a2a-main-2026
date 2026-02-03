@@ -1576,10 +1576,11 @@ export function AgentNetwork({ registeredAgents, isCollapsed, onToggle, enableIn
                           </div>
                         )}
                         
-                        {/* Schedule Dialog - don't pre-select workflow when opened from agent card */}
+                        {/* Schedule Dialog - show create form directly (skip schedules list) */}
                         <ScheduleWorkflowDialog 
                           open={isScheduleDialogOpen} 
                           onOpenChange={setIsScheduleDialogOpen}
+                          showCreateFormDirectly={true}
                           onScheduleChange={fetchScheduledWorkflows}
                         />
               </CardContent>
