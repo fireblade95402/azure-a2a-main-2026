@@ -306,7 +306,7 @@
     {
       "id": "workflow_1770074779756_1z40lyq",
       "name": "tst_stripe_twilio",
-      "description": "calls the stripe agent then the twilio agent",
+      "description": "Check Stripe account balance and send the results via SMS text message using Twilio. Perfect for getting balance updates delivered to your phone.",
       "category": "Custom",
       "user_id": "user_3",
       "steps": [
