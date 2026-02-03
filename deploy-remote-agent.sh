@@ -252,6 +252,21 @@ if [ -n "$AGENT_EXISTS" ]; then
         echo -e "${GREEN}✅ Blob storage configuration added${NC}"
     fi
     
+    # Add Twilio env vars for twilio agents
+    if [[ "$AGENT_NAME" == *"twilio"* ]]; then
+        if [ -n "$TWILIO_ACCOUNT_SID" ] && [ -n "$TWILIO_AUTH_TOKEN" ] && [ -n "$TWILIO_FROM_NUMBER" ]; then
+            ENV_VARS+=("TWILIO_ACCOUNT_SID=$TWILIO_ACCOUNT_SID")
+            ENV_VARS+=("TWILIO_AUTH_TOKEN=$TWILIO_AUTH_TOKEN")
+            ENV_VARS+=("TWILIO_FROM_NUMBER=$TWILIO_FROM_NUMBER")
+            if [ -n "$TWILIO_DEFAULT_TO_NUMBER" ]; then
+                ENV_VARS+=("TWILIO_DEFAULT_TO_NUMBER=$TWILIO_DEFAULT_TO_NUMBER")
+            fi
+            echo -e "${GREEN}✅ Twilio SMS configuration added${NC}"
+        else
+            echo -e "${YELLOW}⚠️  Twilio agent detected but credentials not found in environment${NC}"
+        fi
+    fi
+    
     az containerapp update \
         --name "$CONTAINER_NAME" \
         --resource-group "$RESOURCE_GROUP" \
@@ -278,6 +293,19 @@ else
     if ([[ "$AGENT_NAME" == *"image_generator"* ]] || [[ "$AGENT_NAME" == *"video"* ]]) && [ -n "$AZURE_STORAGE_CONNECTION_STRING" ]; then
         ENV_VARS_CREATE="$ENV_VARS_CREATE FORCE_AZURE_BLOB=true AZURE_STORAGE_CONNECTION_STRING=\"$AZURE_STORAGE_CONNECTION_STRING\" AZURE_BLOB_CONTAINER=a2a-files"
         echo -e "${GREEN}✅ Blob storage configuration added${NC}"
+    fi
+    
+    # Add Twilio env vars for twilio agents
+    if [[ "$AGENT_NAME" == *"twilio"* ]]; then
+        if [ -n "$TWILIO_ACCOUNT_SID" ] && [ -n "$TWILIO_AUTH_TOKEN" ] && [ -n "$TWILIO_FROM_NUMBER" ]; then
+            ENV_VARS_CREATE="$ENV_VARS_CREATE TWILIO_ACCOUNT_SID=$TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN=$TWILIO_AUTH_TOKEN TWILIO_FROM_NUMBER=$TWILIO_FROM_NUMBER"
+            if [ -n "$TWILIO_DEFAULT_TO_NUMBER" ]; then
+                ENV_VARS_CREATE="$ENV_VARS_CREATE TWILIO_DEFAULT_TO_NUMBER=$TWILIO_DEFAULT_TO_NUMBER"
+            fi
+            echo -e "${GREEN}✅ Twilio SMS configuration added${NC}"
+        else
+            echo -e "${YELLOW}⚠️  Twilio agent detected but credentials not found in environment${NC}"
+        fi
     fi
     
     az containerapp create \
