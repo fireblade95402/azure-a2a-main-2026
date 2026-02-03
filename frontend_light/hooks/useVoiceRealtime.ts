@@ -95,6 +95,7 @@ export function useVoiceRealtime(config: VoiceRealtimeConfig): VoiceRealtimeHook
   const fillerSpokenRef = useRef(false);
   const isProcessingRef = useRef(false);
   const isResponseActiveRef = useRef(false);  // Track if Azure is generating a response
+  const announcedAgentsRef = useRef<Set<string>>(new Set());  // Track announced agents to avoid repeats
 
   // Get Azure token from the API route
   const getAzureToken = async (): Promise<string> => {
@@ -170,8 +171,6 @@ export function useVoiceRealtime(config: VoiceRealtimeConfig): VoiceRealtimeHook
             return;
           }
           
-          console.log("[VoiceRealtime] 🎯 Agent activity:", agentName, content?.substring(0, 50));
-          
           // Create friendly name for visual display
           const friendlyName = agentName
             .replace(/^azurefoundry_/i, "")
@@ -183,8 +182,15 @@ export function useVoiceRealtime(config: VoiceRealtimeConfig): VoiceRealtimeHook
             // Update visual status
             setCurrentAgent(friendlyName);
             
-            // Speak filler via Azure Voice Live TTS (out-of-band, won't corrupt conversation)
-            speakFillerViaAzure(`Calling the ${friendlyName} agent.`);
+            // Only announce each agent once per request
+            if (!announcedAgentsRef.current.has(friendlyName.toLowerCase())) {
+              announcedAgentsRef.current.add(friendlyName.toLowerCase());
+              console.log("[VoiceRealtime] 🎯 Announcing agent:", friendlyName);
+              // Speak filler via Azure Voice Live TTS (out-of-band, won't corrupt conversation)
+              speakFillerViaAzure(`Calling the ${friendlyName} agent.`);
+            } else {
+              console.log("[VoiceRealtime] Agent already announced, skipping:", friendlyName);
+            }
           }
         }
       } catch (err) {
@@ -388,6 +394,7 @@ export function useVoiceRealtime(config: VoiceRealtimeConfig): VoiceRealtimeHook
               setIsProcessing(true);
               isProcessingRef.current = true;
               fillerSpokenRef.current = false; // Reset filler flag for this request
+              announcedAgentsRef.current.clear(); // Clear announced agents for new request
               setIsListening(false);
               
               try {
