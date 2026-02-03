@@ -1181,7 +1181,10 @@ def main():
         enable_routing: bool = True  # Whether to enable intelligent workflow routing
     
     @app.post("/api/query")
-    async def execute_query(request: QueryRequest):
+    async def execute_query(
+        request: QueryRequest,
+        credentials: HTTPAuthorizationCredentials = Depends(security)
+    ):
         """
         Execute a natural language query with intelligent workflow routing.
         
@@ -1191,18 +1194,34 @@ def main():
         - Orchestrates multi-agent execution
         - Returns the result synchronously
         
-        REQUIRED: user_id must be provided to filter workflows by user.
+        REQUIRED: 
+        - Authorization header with Bearer token
+        - user_id must be provided to filter workflows by user.
         
         Example curl:
             curl -X POST http://localhost:12000/api/query \\
                 -H "Content-Type: application/json" \\
+                -H "Authorization: Bearer YOUR_TOKEN" \\
                 -d '{"query": "check my balance and list customers", "user_id": "user_3"}'
         
         With custom session:
             curl -X POST http://localhost:12000/api/query \\
                 -H "Content-Type: application/json" \\
+                -H "Authorization: Bearer YOUR_TOKEN" \\
                 -d '{"query": "what invoices are overdue?", "user_id": "user_3", "session_id": "my-session-123"}'
         """
+        # Verify token
+        user = auth_service.verify_token(credentials.credentials)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid authentication token")
+        
+        # Verify the request's user_id matches the authenticated user
+        if request.user_id != user["user_id"]:
+            raise HTTPException(
+                status_code=403, 
+                detail=f"User ID mismatch: authenticated as {user['user_id']}, requested {request.user_id}"
+            )
+        
         import uuid
         import asyncio
         import time
@@ -1212,7 +1231,7 @@ def main():
         
         print(f"\n{'='*60}")
         print(f"[Query API] 🔍 Received query: {request.query}")
-        print(f"[Query API] 👤 User ID: {request.user_id}")
+        print(f"[Query API] 👤 User ID: {request.user_id} (authenticated: {user['email']})")
         print(f"{'='*60}")
         
         # Generate IDs

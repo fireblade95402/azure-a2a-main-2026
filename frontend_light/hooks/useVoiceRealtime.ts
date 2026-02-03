@@ -211,9 +211,16 @@ export function useVoiceRealtime(config: VoiceRealtimeConfig): VoiceRealtimeHook
     try {
       console.log("[VoiceRealtime] Calling /api/query with:", { query, user_id: config.userId, session_id: config.userId });
       
+      // Get auth token from sessionStorage
+      const token = typeof window !== 'undefined' ? sessionStorage.getItem('auth_token') : null;
+      const headers: HeadersInit = { "Content-Type": "application/json" };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       const response = await fetch(`${config.apiUrl}/api/query`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           query,
           user_id: config.userId,
