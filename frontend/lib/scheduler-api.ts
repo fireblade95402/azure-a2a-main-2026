@@ -111,7 +111,7 @@ export interface RunHistoryItem {
   result: string | null;  // The actual workflow output/result
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:12000';
+const API_BASE = process.env.NEXT_PUBLIC_A2A_API_URL || 'http://localhost:12000';
 
 /**
  * Get auth token from storage
@@ -366,13 +366,21 @@ export interface WorkflowInfo {
  * List available workflows for scheduling
  */
 export async function listSchedulableWorkflows(): Promise<WorkflowInfo[]> {
-  const response = await fetch(`${API_BASE}/api/schedules/workflows`, {
-    headers: getAuthHeaders()
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to list workflows: ${response.statusText}`);
+  try {
+    const response = await fetch(`${API_BASE}/api/schedules/workflows`, {
+      headers: getAuthHeaders()
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[Scheduler API] Failed to list workflows:', response.status, errorText);
+      throw new Error(`Failed to list workflows: ${response.status} ${response.statusText}`);
+    }
+    const workflows = await response.json();
+    return Array.isArray(workflows) ? workflows : [];
+  } catch (error) {
+    console.error('[Scheduler API] Error fetching workflows:', error);
+    throw error;
   }
-  return response.json();
 }
 
 /**
