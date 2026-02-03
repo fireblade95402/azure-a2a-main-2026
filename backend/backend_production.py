@@ -291,6 +291,7 @@ async def wake_up_remote_agents():
     
     This is useful when agents are running on scale-to-zero containers (like Azure Container Apps).
     Sending a health check request will wake them up so they're ready when users make queries.
+    This runs asynchronously in the background without blocking startup.
     """
     import asyncio
     
@@ -335,13 +336,19 @@ async def wake_up_remote_agents():
                 print(f"[STARTUP] ❌ {name}: error - {type(e).__name__}: {e}")
                 return (name, False)
         
-        # Run all pings in parallel
-        tasks = [ping_agent(agent) for agent in remote_agents]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Background task to ping agents without blocking startup
+        async def ping_agents_background():
+            """Run agent pings in background and log results."""
+            tasks = [ping_agent(agent) for agent in remote_agents]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Summary
+            awake_count = sum(1 for r in results if isinstance(r, tuple) and r[1])
+            print(f"[STARTUP] 🔔 Wake-up complete: {awake_count}/{len(remote_agents)} agents responded")
         
-        # Summary
-        awake_count = sum(1 for r in results if isinstance(r, tuple) and r[1])
-        print(f"[STARTUP] 🔔 Wake-up complete: {awake_count}/{len(remote_agents)} agents responded")
+        # Fire and forget - don't wait for completion
+        asyncio.create_task(ping_agents_background())
+        print(f"[STARTUP] 🚀 Wake-up pings sent (running in background)")
         
     except Exception as e:
         print(f"[STARTUP] ❌ Error during agent wake-up: {type(e).__name__}: {e}")
