@@ -108,19 +108,12 @@ export function useVoiceRealtime(config: VoiceRealtimeConfig): VoiceRealtimeHook
   // Speak a filler message using Azure Voice Live API with out-of-band TTS
   // Uses response.create with conversation: "none" to avoid corrupting the conversation state
   const speakFillerViaAzure = useCallback((text: string) => {
-    // Only speak one filler per request
-    if (fillerSpokenRef.current) {
-      console.log("[VoiceRealtime] Filler already spoken for this request");
-      return;
-    }
-    
     // Check if we have an active Azure WebSocket connection
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       console.log("[VoiceRealtime] Azure WebSocket not ready for filler TTS");
       return;
     }
     
-    fillerSpokenRef.current = true;
     console.log("[VoiceRealtime] 🗣️ Speaking filler via Azure Voice Live:", text);
     
     // Use response.create with conversation: "none" for out-of-band TTS
@@ -129,8 +122,8 @@ export function useVoiceRealtime(config: VoiceRealtimeConfig): VoiceRealtimeHook
       type: "response.create",
       response: {
         conversation: "none",  // Critical: creates out-of-band response that doesn't affect conversation
-        modalities: ["audio", "text"],
-        instructions: `Say exactly this brief message in a natural, friendly tone: "${text}". Keep it short and conversational.`,
+        modalities: ["audio"],
+        instructions: `You are a status announcer. Your ONLY job is to speak exactly this message and nothing else: "${text}"`,
       }
     }));
   }, []);
@@ -183,7 +176,7 @@ export function useVoiceRealtime(config: VoiceRealtimeConfig): VoiceRealtimeHook
             setCurrentAgent(friendlyName);
             
             // Speak filler via Azure Voice Live TTS (out-of-band, won't corrupt conversation)
-            speakFillerViaAzure(`Contacting the ${friendlyName} agent now. Please wait a moment.`);
+            speakFillerViaAzure(`Calling the ${friendlyName} agent.`);
           }
         }
       } catch (err) {
