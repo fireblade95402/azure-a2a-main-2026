@@ -1,6 +1,6 @@
 "use client";
 
-import { Workflow, Agent, ScheduleInfo } from "@/lib/api";
+import { Workflow, Agent } from "@/lib/api";
 
 // Status for each required agent in the workflow
 export interface AgentStatus {
@@ -13,20 +13,16 @@ interface WorkflowCardProps {
   workflow: Workflow;
   isActivated?: boolean;
   isLoading?: boolean;
-  scheduleInfo?: ScheduleInfo;
   agentStatuses?: AgentStatus[];
   onToggle?: () => void;
-  onToggleSchedule?: () => void;
 }
 
 export function WorkflowCard({ 
   workflow, 
   isActivated = false, 
   isLoading = false,
-  scheduleInfo,
   agentStatuses = [],
   onToggle,
-  onToggleSchedule,
 }: WorkflowCardProps) {
   const getCategoryColor = (category: string) => {
     const colors: Record<string, string> = {
@@ -109,47 +105,6 @@ export function WorkflowCard({
         }`}>
           {workflow.description}
         </p>
-      )}
-
-      {/* Schedule toggle - only show if workflow has a schedule */}
-      {scheduleInfo && (
-        <div 
-          className="flex items-center justify-between mb-3 p-2 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="flex items-center gap-2">
-            <svg className="w-4 h-4 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300">
-              {scheduleInfo.schedule_type === 'interval' ? 'Interval' :
-               scheduleInfo.schedule_type === 'daily' ? 'Daily' :
-               scheduleInfo.schedule_type === 'weekly' ? 'Weekly' :
-               scheduleInfo.schedule_type === 'monthly' ? 'Monthly' :
-               scheduleInfo.schedule_type === 'once' ? 'One-time' :
-               scheduleInfo.schedule_type === 'cron' ? 'Cron' : 'Scheduled'}
-            </span>
-          </div>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleSchedule?.();
-            }}
-            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-              scheduleInfo.enabled 
-                ? 'bg-indigo-600' 
-                : 'bg-gray-300 dark:bg-gray-600'
-            }`}
-            title={scheduleInfo.enabled ? 'Disable schedule' : 'Enable schedule'}
-          >
-            <span
-              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform ${
-                scheduleInfo.enabled ? 'translate-x-4.5' : 'translate-x-1'
-              }`}
-              style={{ transform: scheduleInfo.enabled ? 'translateX(18px)' : 'translateX(4px)' }}
-            />
-          </button>
-        </div>
       )}
 
       {/* Agent status chips - only show when activated */}

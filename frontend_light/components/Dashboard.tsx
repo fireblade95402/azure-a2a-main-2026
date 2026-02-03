@@ -510,7 +510,29 @@ function WorkflowsTab({
   onToggleWorkflow: (workflow: Workflow) => void;
   onToggleSchedule: (scheduleInfo: ScheduleInfo) => void;
 }) {
-  if (workflows.length === 0) {
+  // Get agent statuses for each workflow
+  const getWorkflowAgentStatuses = (workflow: Workflow): AgentStatus[] => {
+    const requiredAgents = getRequiredAgents(workflow, agents);
+    return requiredAgents.map(agentStatus => {
+      const matchingAgent = agents.find(a => 
+        a.name.toLowerCase() === agentStatus.agentName.toLowerCase() ||
+        a.name.toLowerCase().includes(agentStatus.agentName.toLowerCase()) ||
+        agentStatus.agentName.toLowerCase().includes(a.name.toLowerCase())
+      );
+      return {
+        ...agentStatus,
+        isEnabled: matchingAgent ? enabledAgentUrls.has(matchingAgent.url) : false,
+      };
+    });
+  };
+
+  // Get scheduled workflows (workflows that have a schedule)
+  const scheduledWorkflows = Array.from(workflowSchedules.entries()).map(([workflowId, scheduleInfo]) => {
+    const workflow = workflows.find(w => w.id === workflowId);
+    return { workflow, scheduleInfo };
+  }).filter(item => item.workflow !== undefined);
+
+  if (workflows.length === 0 && scheduledWorkflows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-2xl flex items-center justify-center mb-4">
@@ -538,46 +560,113 @@ function WorkflowsTab({
     );
   }
 
-  // Get agent statuses for each workflow
-  const getWorkflowAgentStatuses = (workflow: Workflow): AgentStatus[] => {
-    const requiredAgents = getRequiredAgents(workflow, agents);
-    return requiredAgents.map(agentStatus => {
-      const matchingAgent = agents.find(a => 
-        a.name.toLowerCase() === agentStatus.agentName.toLowerCase() ||
-        a.name.toLowerCase().includes(agentStatus.agentName.toLowerCase()) ||
-        agentStatus.agentName.toLowerCase().includes(a.name.toLowerCase())
-      );
-      return {
-        ...agentStatus,
-        isEnabled: matchingAgent ? enabledAgentUrls.has(matchingAgent.url) : false,
-      };
-    });
-  };
-
   return (
-    <div className="space-y-4">
-      {/* Info bar */}
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-        Tap a workflow to activate it. Required agents will be enabled automatically.
-      </p>
-      
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {workflows.map((workflow) => {
-          const scheduleInfo = workflowSchedules.get(workflow.id);
-          return (
-            <WorkflowCard 
-              key={workflow.id} 
-              workflow={workflow}
-              isActivated={activatedWorkflowIds.has(workflow.id)}
-              isLoading={loadingWorkflowIds.has(workflow.id)}
-              scheduleInfo={scheduleInfo}
-              agentStatuses={getWorkflowAgentStatuses(workflow)}
-              onToggle={() => onToggleWorkflow(workflow)}
-              onToggleSchedule={scheduleInfo ? () => onToggleSchedule(scheduleInfo) : undefined}
-            />
-          );
-        })}
-      </div>
+    <div className="space-y-8">
+      {/* Voice Workflows Section */}
+      <section>
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+          <svg className="w-4 h-4 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+          </svg>
+          Voice Workflows
+        </h2>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+          Activate for voice sessions. Required agents are enabled automatically.
+        </p>
+        
+        {workflows.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {workflows.map((workflow) => (
+              <WorkflowCard 
+                key={workflow.id} 
+                workflow={workflow}
+                isActivated={activatedWorkflowIds.has(workflow.id)}
+                isLoading={loadingWorkflowIds.has(workflow.id)}
+                agentStatuses={getWorkflowAgentStatuses(workflow)}
+                onToggle={() => onToggleWorkflow(workflow)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl text-center">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              No voice workflows available
+            </p>
+          </div>
+        )}
+      </section>
+
+      {/* Scheduled Workflows Section */}
+      {scheduledWorkflows.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+            <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Scheduled Workflows
+          </h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+            Run automatically on a schedule. Create in the main app.
+          </p>
+          
+          <div className="space-y-2">
+            {scheduledWorkflows.map(({ workflow, scheduleInfo }) => (
+              <div
+                key={scheduleInfo.id}
+                className={`flex items-center justify-between p-4 rounded-xl border transition-colors ${
+                  scheduleInfo.enabled
+                    ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800'
+                    : 'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700'
+                }`}
+              >
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                    {workflow?.name || scheduleInfo.workflow_id}
+                  </h3>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${
+                      scheduleInfo.enabled
+                        ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300'
+                        : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                    }`}>
+                      {scheduleInfo.schedule_type === 'interval' ? 'Interval' :
+                       scheduleInfo.schedule_type === 'daily' ? 'Daily' :
+                       scheduleInfo.schedule_type === 'weekly' ? 'Weekly' :
+                       scheduleInfo.schedule_type === 'monthly' ? 'Monthly' :
+                       scheduleInfo.schedule_type === 'once' ? 'One-time' :
+                       scheduleInfo.schedule_type === 'cron' ? 'Cron' : 'Scheduled'}
+                    </span>
+                    {scheduleInfo.next_run && (
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        Next: {new Date(scheduleInfo.next_run).toLocaleString([], { 
+                          month: 'short', 
+                          day: 'numeric', 
+                          hour: '2-digit', 
+                          minute: '2-digit' 
+                        })}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => onToggleSchedule(scheduleInfo)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ml-4 ${
+                    scheduleInfo.enabled 
+                      ? 'bg-indigo-600' 
+                      : 'bg-gray-300 dark:bg-gray-600'
+                  }`}
+                  title={scheduleInfo.enabled ? 'Disable schedule' : 'Enable schedule'}
+                >
+                  <span
+                    className="inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform"
+                    style={{ transform: scheduleInfo.enabled ? 'translateX(22px)' : 'translateX(4px)' }}
+                  />
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
