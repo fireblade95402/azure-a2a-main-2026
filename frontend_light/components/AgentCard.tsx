@@ -182,22 +182,6 @@ export function AgentCard({ agent, isEnabled = false, onToggle, isLoading = fals
         </div>
       )}
 
-      {/* Provider */}
-      <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-700">
-        <div className="flex items-center gap-2">
-          {agent.provider?.organization && (
-            <span className="text-xs text-gray-400 dark:text-gray-500 truncate">
-              {agent.provider.organization}
-            </span>
-          )}
-        </div>
-        {agent.version && (
-          <span className="text-xs text-gray-400 dark:text-gray-500">
-            v{agent.version}
-          </span>
-        )}
-      </div>
-
       {/* Tap hint for online agents */}
       {isOnline && !isEnabled && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/5 dark:group-hover:bg-white/5 rounded-xl transition-colors">

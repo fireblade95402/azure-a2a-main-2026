@@ -25,7 +25,7 @@ interface DashboardProps {
 type TabType = "workflows" | "agents" | "messages";
 
 export function Dashboard({ user, onLogout }: DashboardProps) {
-  const [activeTab, setActiveTab] = useState<TabType>("workflows");
+  const [activeTab, setActiveTab] = useState<TabType>("messages");
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [enabledAgentUrls, setEnabledAgentUrls] = useState<Set<string>>(new Set());
@@ -445,8 +445,6 @@ function WorkflowsTab({
   enabledAgentUrls: Set<string>;
   onToggleWorkflow: (workflow: Workflow) => void;
 }) {
-  const activatedCount = activatedWorkflowIds.size;
-  
   if (workflows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -494,16 +492,9 @@ function WorkflowsTab({
   return (
     <div className="space-y-4">
       {/* Info bar */}
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          Tap a workflow to activate it. Required agents will be enabled automatically.
-        </p>
-        {activatedCount > 0 && (
-          <span className="px-3 py-1 text-sm font-medium text-green-700 bg-green-100 dark:text-green-400 dark:bg-green-900/50 rounded-full">
-            {activatedCount} activated
-          </span>
-        )}
-      </div>
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+        Tap a workflow to activate it. Required agents will be enabled automatically.
+      </p>
       
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {workflows.map((workflow) => (
@@ -636,7 +627,7 @@ function MessagesTab({ messages }: { messages: VoiceMessage[] }) {
           No messages yet
         </h3>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Start a voice conversation to see your history here
+          Add agents or enable your workflows and start a conversation
         </p>
       </div>
     );
