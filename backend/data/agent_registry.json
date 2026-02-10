@@ -237,8 +237,8 @@
     ]
   },
   {
-    "name": "Salesforce CRM Agent",
-    "description": "An intelligent Salesforce agent with full CRM data access, metadata management, and Apex development capabilities.",
+    "name": "ServiceNow, Web & Knowledge Agent",
+    "description": "An intelligent agent specialized in ServiceNow management, Bank system actions, web search, and file/knowledge/document search. Can simulate ServiceNow incidents, users, and knowledge base operations, perform any Bank action (block card, check balance, report fraud, etc.), search the web for current information, and search through uploaded documents/files for specific information, all with realistic synthetic responses.",
     "version": "1.0.0",
     "url": "http://localhost:8000/",
     "defaultInputModes": [
@@ -252,79 +252,84 @@
     },
     "skills": [
       {
-        "id": "salesforce_data_query",
-        "name": "Salesforce Data Query & Search",
-        "description": "Query and search Salesforce data using SOQL and SOSL. Execute aggregate queries (COUNT, SUM, AVG), search across multiple objects, and retrieve detailed records.",
+        "id": "salesforce_management",
+        "name": "ServiceNow Management",
+        "description": "Create, search, and manage ServiceNow incidents, users, and knowledge base articles. Simulates ServiceNow actions with realistic synthetic data.",
         "examples": [
-          "Show me all accounts in the technology industry",
-          "How many opportunities are in the pipeline?",
-          "What is the average deal size this quarter?"
+          "Create a new ServiceNow incident",
+          "Search for incidents assigned to a user",
+          "Update incident status",
+          "List ServiceNow users",
+          "Search ServiceNow knowledge base"
         ],
         "tags": [
-          "salesforce",
-          "soql",
-          "sosl",
-          "query",
+          "servicenow",
+          "incident",
+          "it",
+          "support"
+        ]
+      },
+      {
+        "id": "Bank_actions",
+        "name": "Bank Actions",
+        "description": "Simulate any action on the Bank system (block/unblock card, check balance, report fraud, create disputes, issue refunds, etc.) and return synthetic responses.",
+        "examples": [
+          "Block a credit card",
+          "Unblock a credit card",
+          "Check account balance",
+          "Report a fraudulent transaction",
+          "Create a dispute for a transaction",
+          "Issue a refund for a transaction",
+          "Check transaction details"
+        ],
+        "tags": [
+          "banking",
+          "finance",
+          "card",
+          "dispute",
+          "refund"
+        ]
+      },
+      {
+        "id": "web_search",
+        "name": "Web Search",
+        "description": "Search the web for current information using Bing or other integrated search tools.",
+        "examples": [
+          "Find the latest news about a company",
+          "Search for troubleshooting steps online",
+          "Get current weather information"
+        ],
+        "tags": [
+          "web",
           "search",
-          "data"
+          "bing",
+          "internet"
         ]
       },
       {
-        "id": "salesforce_data_management",
-        "name": "Salesforce Data Management",
-        "description": "Create, update, and delete Salesforce records including Accounts, Contacts, Leads, Opportunities, and Cases using DML operations.",
+        "id": "file_knowledge_search",
+        "name": "File & Knowledge Search",
+        "description": "Search through uploaded documents, files, and knowledge bases for specific information.",
         "examples": [
-          "Create a new contact named John Smith at Acme Corp",
-          "Update the opportunity status to Closed Won",
-          "Create a new account for TechCorp Inc"
+          "Search uploaded PDF for a keyword",
+          "Find information in a user manual",
+          "Extract data from a document"
         ],
         "tags": [
-          "salesforce",
-          "crm",
-          "create",
-          "update",
-          "delete",
-          "dml"
-        ]
-      },
-      {
-        "id": "salesforce_metadata",
-        "name": "Salesforce Metadata Management",
-        "description": "Describe Salesforce objects, create custom objects and fields, manage field-level security permissions.",
-        "examples": [
-          "What fields does the Account object have?",
-          "Create a new custom field on the Lead object"
-        ],
-        "tags": [
-          "salesforce",
-          "metadata",
-          "fields",
-          "objects",
-          "permissions"
-        ]
-      },
-      {
-        "id": "salesforce_development",
-        "name": "Salesforce Apex Development",
-        "description": "Read and write Apex classes and triggers, execute anonymous Apex code, manage debug logs.",
-        "examples": [
-          "Show me the code for the AccountTrigger",
-          "Enable debug logs for user admin@example.com"
-        ],
-        "tags": [
-          "salesforce",
-          "apex",
-          "code",
-          "triggers",
-          "development"
+          "file",
+          "document",
+          "knowledge",
+          "search"
         ]
       },
       {
         "id": "human_interaction",
         "name": "Human Expert Escalation",
-        "description": "Escalate complex issues to human experts when needed.",
+        "description": "Escalate complex issues to human experts or facilitate human-in-the-loop interactions when automated responses are insufficient.",
         "examples": [
+          "Escalate this issue to a human expert",
           "I need to speak with a person",
+          "Request human assistance for complex decision",
           "Connect me with a human agent"
         ],
         "tags": [
